@@ -1,0 +1,51 @@
+# Environment variables & secrets
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Data and Cache
+data/cache/*
+!data/cache/.gitkeep
+data/*.json
+data/*.jsonl
+data/*.pid
+!data/.gitkeep
+*.log
+cookies.txt
+wishlist_page.html
+*.html
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo

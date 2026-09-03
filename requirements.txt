@@ -1,0 +1,8 @@
+google-antigravity>=0.1.16
+google-genai>=2.22.0
+pydantic>=2.10.0
+python-dotenv>=1.0.1
+requests>=2.32.0
+beautifulsoup4>=4.12.0
+feedparser>=6.0.11
+tenacity>=8.2.0
