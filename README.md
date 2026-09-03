@@ -91,24 +91,28 @@ py -3.13 -c "import getpass, pathlib; val = getpass.getpass('Enter DISCORD_WEBHO
 
 ## 💻 Como Usar
 
-### 🔍 Executar Varredura Imediata da Wishlist e Notícias
+### 🤖 Iniciar o Bot Interativo do Discord
 ```bash
-python run.py --check-now
+python run.py --mode discord
 ```
+Principais comandos slash disponíveis no servidor:
+* `/painel` — Publica o painel de boas-vindas e configuração por reações (dividido em 3 mensagens com 12 tags oficiais Steam e teto de orçamento).
+* `/check` — Força varredura imediata de promoções no menor preço histórico com datas de término da oferta.
+* `/definir_canal` — Define o canal oficial onde o bot postará os anúncios e alertas com menções cirúrgicas.
+* `/minha_wishlist` — Lista os jogos da lista de desejos cadastrada com preços em R$ e descontos.
+* `/vincular_steam <url>` — Conecta a lista de desejos ao radar comunitário do servidor.
+* `/reviews <jogo>` — Consulta opiniões reais de jogadores na Steam e discussões do Reddit.
+* `/noticias` — Manchetes filtradas do radar gamer.
+* `/help` — Guia geral interativo.
 
-### 🤖 Conversar com o Agente de IA (Modo Chat Interativo)
-```bash
-python run.py --mode chat
-```
-
-### 🛡️ Iniciar Monitoramento Autônomo em Segundo Plano (a cada 3 dias)
+### 🛡️ Iniciar Monitoramento Autônomo Antigravity (a cada 3 dias)
 ```bash
 python run.py --mode daemon
 ```
 
-### 🧪 Testar Webhook do Discord
+### 🔍 Executar Varredura Imediata CLI
 ```bash
-python run.py --test-discord
+python run.py --check-now
 ```
 
 ---
@@ -118,4 +122,9 @@ python run.py --test-discord
 ```bash
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
 ```
-Todos os 11 testes cobrem isolamento de preço histórico, filtros de palavras-chave do radar de notícias, integridade dos endpoints Steam e saídas JSON das ferramentas CLI.
+Todos os **19 testes automatizados** cobrem:
+* Roteamento de reações do painel de 3 mensagens e 12 tags oficiais da Steam.
+* Persistência de preferências, orçamentos e canais de anúncios.
+* Auto-exclusão e rastreamento de promoções expiradas.
+* Filtro lógico estrito de menor preço histórico (morte silenciosa para ofertas +R$ 0,01).
+* Varredura do radar de notícias, APIs da Steam e saídas JSON das ferramentas CLI.
