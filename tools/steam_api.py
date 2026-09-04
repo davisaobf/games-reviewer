@@ -10,6 +10,9 @@ import urllib.parse
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
+import requests
+from bs4 import BeautifulSoup
+
 from config import settings, CACHE_DIR
 
 logger = logging.getLogger("GamesReviewer.SteamAPI")
@@ -349,6 +352,10 @@ class SteamClient:
             # Clean HTML entities if any
             clean_desc = re.sub(r'<[^>]+>', '', raw_short_desc).strip()
 
+            genres = [g.get("description") for g in data.get("genres", [])]
+            player_modes = self.extract_player_modes(categories)
+            combined_tags = list(dict.fromkeys([g for g in genres if g] + [m for m in player_modes if m]))
+
             return {
                 "appid": appid,
                 "name": data.get("name"),
@@ -356,9 +363,10 @@ class SteamClient:
                 "header_image": header_img,
                 "capsule_image": capsule_img,
                 "icon_url": icon_url,
-                "genres": [g.get("description") for g in data.get("genres", [])],
+                "genres": genres,
                 "categories": categories,
-                "player_modes": self.extract_player_modes(categories),
+                "player_modes": player_modes,
+                "tags": combined_tags,
                 "developers": data.get("developers", []),
                 "publishers": data.get("publishers", []),
                 "release_date": data.get("release_date", {}).get("date", ""),
@@ -370,6 +378,9 @@ class SteamClient:
                 "store_url": f"https://store.steampowered.com/app/{appid}/"
             }
         return None
+
+    # Alias for compatibility
+    get_app_details = get_game_details
 
     def get_discount_end_info(self, appid: int) -> Dict[str, Any]:
         """Scrapes Steam store page to detect the discount countdown/expiration text."""

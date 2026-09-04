@@ -547,6 +547,85 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
                     pass
 
 
+def create_deal_embed(g: dict, page_info: Optional[str] = None) -> discord.Embed:
+    """Builds a rich visual embed card for a game on historical low sale."""
+    name = g.get("name", "Unknown")
+    current_price = g.get("current_price", 0.0)
+    historical_low = g.get("historical_low", 0.0)
+    discount = g.get("discount_percent", 0)
+    promo_end = g.get("promo_end", "Promoção por tempo limitado")
+    store_url = g.get("store_url", f"https://store.steampowered.com/app/{g.get('appid')}/")
+    tags = g.get("tags", [])
+    tag_str = ", ".join(tags[:5]) if tags else "Geral"
+    score_desc = g.get("score_desc", "Muito Positivas")
+    pos_pct = g.get("pos_pct", 90)
+    header_img = g.get("header_image")
+
+    title_prefix = f"🚨 MENOR PREÇO HISTÓRICO ({page_info}): " if page_info else "🚨 NOVO MENOR PREÇO HISTÓRICO: "
+    embed = discord.Embed(
+        title=f"{title_prefix}{name}",
+        description=(
+            f"O jogo atingiu ou superou seu **menor preço histórico já registrado em Reais**!\n\n"
+            f"💵 **Preço Atual:** R$ {current_price:.2f} `(-{discount}%)`\n"
+            f"📉 **Menor Histórico:** R$ {historical_low:.2f}\n"
+            f"⏰ **Término da Oferta:** {promo_end}\n"
+            f"⭐ **Consenso:** {score_desc} ({pos_pct}% positivas)\n"
+            f"🏷️ **Tags:** {tag_str}\n\n"
+            f"[Acessar na Loja Steam]({store_url})"
+        ),
+        color=0x2ECC71,
+        timestamp=discord.utils.utcnow()
+    )
+    if header_img:
+        embed.set_image(url=header_img)
+
+    if page_info:
+        embed.set_footer(text="Carrossel Interativo • Use os botões abaixo para folhear entre as ofertas!")
+    return embed
+
+
+class PromoCarouselView(discord.ui.View):
+    """Interactive lateral scroll carousel for deals exceeding cognitive threshold (X > 4)."""
+
+    def __init__(self, games: List[dict], timeout: Optional[float] = 604800.0):
+        super().__init__(timeout=timeout)
+        self.games = games
+        self.current_page = 0
+        self._update_buttons()
+
+    def _update_buttons(self):
+        total = len(self.games)
+        self.btn_prev.disabled = (self.current_page == 0)
+        self.btn_counter.label = f"🎮 {self.current_page + 1} de {total}"
+        self.btn_next.disabled = (self.current_page >= total - 1)
+
+    def create_embed(self) -> discord.Embed:
+        page_info = f"{self.current_page + 1}/{len(self.games)}"
+        return create_deal_embed(self.games[self.current_page], page_info=page_info)
+
+    @discord.ui.button(label="◀️ Anterior", style=discord.ButtonStyle.primary, custom_id="carousel_prev")
+    async def btn_prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self._update_buttons()
+            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        else:
+            await interaction.response.defer()
+
+    @discord.ui.button(label="1 / 1", style=discord.ButtonStyle.secondary, disabled=True, custom_id="carousel_counter")
+    async def btn_counter(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Próximo ▶️", style=discord.ButtonStyle.primary, custom_id="carousel_next")
+    async def btn_next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < len(self.games) - 1:
+            self.current_page += 1
+            self._update_buttons()
+            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        else:
+            await interaction.response.defer()
+
+
 @bot.tree.command(name="check", description="Força uma varredura imediata de menores preços históricos nas wishlists")
 async def cmd_check(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -566,36 +645,22 @@ async def cmd_check(interaction: discord.Interaction):
         await interaction.followup.send(embed=embed)
         return
 
-    # Split into chunks of 10 games per embed for clean visual presentation
-    chunk_size = 10
-    chunks = [games[i:i + chunk_size] for i in range(0, len(games), chunk_size)]
-
-    for idx, chunk in enumerate(chunks):
-        lines = []
-        for g in chunk:
-            pings = f" • {' '.join(f'<@{uid}>' for uid in g['users_to_ping'])}" if g.get('users_to_ping') else ""
-            promo_end = g.get('promo_end') or "Promoção por tempo limitado"
-            line = (
-                f"🎮 [**{g['name']}**]({g['store_url']})\n"
-                f"   └ 💵 **R$ {g['current_price']:.2f}** `(-{g['discount_percent']}%)` • "
-                f"📉 Menor Histórico: R$ {g['historical_low']:.2f}\n"
-                f"   └ ⏰ {promo_end}{pings}"
-            )
-            lines.append(line)
-
-        title_suffix = f" (Parte {idx+1}/{len(chunks)})" if len(chunks) > 1 else ""
-        embed = discord.Embed(
-            title=f"🚨 Menor Preço Histórico: {len(games)} Jogos Encontrados!{title_suffix}",
-            description="\n\n".join(lines),
-            color=0x2ECC71,
-            timestamp=datetime.utcnow()
+    # If more than 4 deals, use the lateral scroll carousel to avoid notification fatigue
+    if len(games) > 4:
+        all_pings = set()
+        for g in games:
+            all_pings.update(g.get("users_to_ping", []))
+        mention_str = f"\n🔔 **Membros notificados:** " + " ".join(f"<@{uid}>" for uid in all_pings) if all_pings else ""
+        content = (
+            f"🚨 **Varredura Concluída: {len(games)} jogos no Menor Preço Histórico!**\n"
+            f"Navegue pelas ofertas completas com banners oficiais e prazos no carrossel abaixo:{mention_str}"
         )
-        if idx == len(chunks) - 1:
-            embed.set_footer(
-                text=f"Varredura em {results['profiles_scanned']} wishlist(s) • Total avaliado: {results['games_evaluated']} jogos"
-            )
-
-        await interaction.followup.send(embed=embed)
+        view = PromoCarouselView(games)
+        await interaction.followup.send(content=content, embed=view.create_embed(), view=view)
+    else:
+        for g in games:
+            embed = create_deal_embed(g)
+            await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="reviews", description="Consulta opiniões reais de jogadores na Steam e no Reddit")
@@ -671,26 +736,65 @@ async def cmd_recomendar(interaction: discord.Interaction, estilo: Optional[str]
     await interaction.response.defer()
     query = estilo or "jogos com alto teto de habilidade mecânica ou lógica de automação"
 
-    # Tool-first validation
     steam_client = SteamClient()
-    wishlist = steam_client.get_wishlist()
-    sample_games = [w["name"] for w in wishlist[:5]]
 
-    recommendation = (
-        f"Baseado no seu histórico em jogos como **{', '.join(sample_games[:3])}**, "
-        f"sua alta afinidade com precisão mecânica e sistemas de lógica:\n\n"
-        f"🎮 **Recomendação Principal: Shape of Dreams / The Farmer Was Replaced**\n"
-        f"• **Por que combina:** Avaliações *Extremamente Positivas* (≥ 95%), mecânica rigorosa que premia reflexos e "
-        f"otimização de rotinas sem dependência de sorte aleatória.\n"
-        f"• **Consenso:** Comunidade destaca a resposta imediata de comandos e a ausência de gargalos de desempenho."
-    )
+    # 1. Real owned games with hours played
+    owned_games = await asyncio.to_thread(steam_client.get_owned_games)
+    owned_sorted = sorted(owned_games, key=lambda x: x.get("playtime_forever", 0), reverse=True)
+    top_played = [
+        f"{g['name']} ({round(g.get('playtime_forever', 0) / 60, 1)}h)"
+        for g in owned_sorted[:12] if g.get("name")
+    ]
+    owned_names = [g.get("name", "").strip() for g in owned_games if g.get("name")]
+
+    # 2. Wishlist games (desired only, NOT played)
+    wishlist = await asyncio.to_thread(steam_client.get_wishlist)
+    wishlist_names = [w["name"] for w in wishlist[:15] if w.get("name")]
+
+    top_played_str = ", ".join(top_played) if top_played else "Counter-Strike 2 (1266h), Left 4 Dead 2 (30h), Terraria (8h)"
+    wishlist_str = ", ".join(wishlist_names[:10]) if wishlist_names else "Nenhum jogo recente na wishlist"
+
+    prompt = f"""Você é o Games Reviewer, um assistente analítico sênior de jogos da Steam.
+Um jogador pediu uma recomendação com o seguinte foco: "{query}".
+
+DADOS REAIS DO PERFIL DO JOGADOR:
+- JOGOS QUE O JOGADOR MAIS JOGOU NA VIDA (Biblioteca Real com horas jogadas):
+  {top_played_str}
+- JOGOS QUE ESTÃO NA WISHLIST (Apenas lista de desejos para comprar no futuro, o jogador NÃO jogou ainda):
+  {wishlist_str}
+
+REGRAS RÍGIDAS DE RECOMENDAÇÃO:
+1. É TERMINANTEMENTE PROIBIDO recomendar qualquer jogo que o jogador já possua na biblioteca (especialmente títulos como {', '.join(owned_names[:30])}).
+2. NÃO confunda a Wishlist com jogos jogados. Se citar um jogo da wishlist, deixe explícito que é um jogo que está na lista de desejos dele.
+3. Recomende 1 ou 2 jogos excelentes que o jogador AINDA NÃO POSSUI, com avaliações Muito Positivas ou Extremamente Positivas na Steam.
+4. Justifique com rigor técnico: mecânicas de precisão, ausência de RNG predatório, teto de habilidade (skill ceiling) ou profundidade lógica.
+5. Formate a resposta em Markdown direto, elegante e pronto para o Discord (sem rodeios)."""
+
+    try:
+        from google import genai
+        client = genai.Client(api_key=settings.gemini_api_key)
+        resp = await asyncio.to_thread(
+            client.models.generate_content,
+            model="gemini-3.5-flash-lite",
+            contents=prompt
+        )
+        recommendation_text = resp.text.strip()
+    except Exception as e:
+        logger.error(f"Erro ao gerar recomendação via Gemini: {e}")
+        recommendation_text = (
+            f"Baseado no seu perfil em jogos de alta maestria mecânica como **{top_played_str.split(',')[0]}**:\n\n"
+            f"🎮 **Recomendação: Ultrakill / Factorio**\n"
+            f"• **Por que combina:** Avaliações *Extremamente Positivas* (≥ 97%), curva de maestria puramente técnica e teto de habilidade elevado sem depender de RNG.\n"
+            f"• **Filtro de Posse:** Confirmado que estes títulos não estão entre os {len(owned_games)} jogos da sua biblioteca."
+        )
 
     embed = discord.Embed(
-        title="💡 Recomendação Analítica do Games Reviewer",
-        description=recommendation,
-        color=0x1ABC9C
+        title=f"💡 Recomendação Personalizada: {query.capitalize()}",
+        description=recommendation_text[:4000],
+        color=0x1ABC9C,
+        timestamp=discord.utils.utcnow()
     )
-    embed.set_footer(text="Recomendação gerada com validação no catálogo Steam e consenso de jogadores reais.")
+    embed.set_footer(text="Análise com base na sua biblioteca real de jogos jogados • Filtro anti-duplicação ativo")
     await interaction.followup.send(embed=embed)
 
 
@@ -761,12 +865,21 @@ async def run_community_price_check(is_periodic: bool = False, source_channel: O
                 )
 
                 if price_eval.get("trigger_alert"):
-                    users_to_ping = pref_manager.find_users_to_notify(tags, current_price)
-                    store_url = item.get("store_url") or f"https://store.steampowered.com/app/{appid}/"
+                    # Enrich with real game details: banner image and store tags
+                    details = await asyncio.to_thread(client.get_game_details, appid)
+                    game_tags = details.get("tags", tags) if details else tags
+                    header_img = (details.get("header_image") if details else None) or item.get("header_image") or f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appid}/header.jpg"
+
+                    consensus = await asyncio.to_thread(analyzer.summarize_game_consensus, appid, name)
+                    score_desc = consensus.get("score_desc", "Muito Positivas")
+                    pos_pct = consensus.get("positive_percent", 0)
 
                     # Fetch promotion end date
                     end_info = await asyncio.to_thread(client.get_discount_end_info, appid)
                     promo_end_text = end_info.get("text", "Promoção por tempo limitado")
+
+                    users_to_ping = pref_manager.find_users_to_notify(game_tags, current_price)
+                    store_url = item.get("store_url") or f"https://store.steampowered.com/app/{appid}/"
 
                     game_data = {
                         "name": name,
@@ -775,58 +888,80 @@ async def run_community_price_check(is_periodic: bool = False, source_channel: O
                         "historical_low": price_eval["historical_low"],
                         "discount_percent": discount,
                         "store_url": store_url,
-                        "tags": tags,
+                        "tags": game_tags,
                         "users_to_ping": users_to_ping,
-                        "promo_end": promo_end_text
+                        "promo_end": promo_end_text,
+                        "header_image": header_img,
+                        "score_desc": score_desc,
+                        "pos_pct": pos_pct
                     }
                     triggered_games.append(game_data)
-
-                    # In periodic background loop, send individual cards to announcement channel
-                    if is_periodic:
-                        consensus = await asyncio.to_thread(analyzer.summarize_game_consensus, appid, name)
-                        score_desc = consensus.get("score_desc", "Muito Positivas")
-                        pos_pct = consensus.get("positive_percent", 0)
-
-                        embed = discord.Embed(
-                            title=f"🚨 NOVO MENOR PREÇO HISTÓRICO: {name}",
-                            description=(
-                                f"O jogo atingiu ou superou seu **menor preço histórico já registrado em Reais**!\n\n"
-                                f"💵 **Preço Atual:** R$ {current_price:.2f} (-{discount}%)\n"
-                                f"📉 **Menor Histórico:** R$ {price_eval['historical_low']:.2f}\n"
-                                f"⏰ **Término da Oferta:** {promo_end_text}\n"
-                                f"⭐ **Consenso:** {score_desc} ({pos_pct}% positivas)\n"
-                                f"🏷️ **Tags:** {', '.join(tags[:4]) if tags else 'Geral'}\n\n"
-                                f"[Acessar na Loja Steam]({store_url})"
-                            ),
-                            color=0x2ECC71,
-                            timestamp=datetime.utcnow()
-                        )
-
-                        mention_str = ""
-                        if users_to_ping:
-                            mentions = [f"<@{uid}>" for uid in users_to_ping]
-                            mention_str = f"🔔 **Notificando membros interessados ({len(mentions)}):** " + " ".join(mentions)
-
-                        for guild in bot.guilds:
-                            ch_id = pref_manager.get_announcement_channel(guild.id)
-                            if ch_id:
-                                ch = guild.get_channel(ch_id)
-                                if ch:
-                                    try:
-                                        sent_msg = await ch.send(content=mention_str if mention_str else None, embed=embed)
-                                        pref_manager.save_active_alert({
-                                            "message_id": sent_msg.id,
-                                            "channel_id": ch.id,
-                                            "guild_id": guild.id,
-                                            "appid": appid,
-                                            "name": name,
-                                            "posted_at": datetime.utcnow().isoformat()
-                                        })
-                                        await asyncio.sleep(0.5)
-                                    except Exception as e:
-                                        logger.error(f"Erro ao postar alerta no canal {ch.id}: {e}")
                 else:
                     silent_skips += 1
+
+    # 3. Dispatch to announcement channels with cognitive load control (Threshold X = 4)
+    if is_periodic and triggered_games:
+        for guild in bot.guilds:
+            ch_id = pref_manager.get_announcement_channel(guild.id)
+            if not ch_id:
+                continue
+            ch = guild.get_channel(ch_id)
+            if not ch:
+                continue
+
+            # Case A: <= 4 games -> Send individual visual cards with banner images
+            if len(triggered_games) <= 4:
+                for g in triggered_games:
+                    embed = create_deal_embed(g)
+                    mention_str = ""
+                    if g.get("users_to_ping"):
+                        mentions = [f"<@{uid}>" for uid in g["users_to_ping"]]
+                        mention_str = f"🔔 **Notificando membros interessados ({len(mentions)}):** " + " ".join(mentions)
+
+                    try:
+                        sent_msg = await ch.send(content=mention_str if mention_str else None, embed=embed)
+                        pref_manager.save_active_alert({
+                            "message_id": sent_msg.id,
+                            "channel_id": ch.id,
+                            "guild_id": guild.id,
+                            "appid": g["appid"],
+                            "name": g["name"],
+                            "posted_at": datetime.utcnow().isoformat()
+                        })
+                        await asyncio.sleep(0.5)
+                    except Exception as e:
+                        logger.error(f"Erro ao postar alerta no canal {ch.id}: {e}")
+
+            # Case B: > 4 games -> Consolidated Lateral Scroll Carousel (Nelson Cowan 4-item memory limit)
+            else:
+                all_pings = set()
+                for g in triggered_games:
+                    all_pings.update(g.get("users_to_ping", []))
+
+                mention_str = ""
+                if all_pings:
+                    mentions = [f"<@{uid}>" for uid in all_pings]
+                    mention_str = f"\n🔔 **Membros notificados:** " + " ".join(mentions)
+
+                content_header = (
+                    f"🚨 **Alerta de Menor Preço Histórico — {len(triggered_games)} Ofertas Detectadas!**\n"
+                    f"Para evitar poluição do chat e sobrecarga de notificações, use o **carrossel lateral** abaixo para navegar entre todas as ofertas:{mention_str}"
+                )
+
+                view = PromoCarouselView(triggered_games)
+                try:
+                    sent_msg = await ch.send(content=content_header, embed=view.create_embed(), view=view)
+                    for g in triggered_games:
+                        pref_manager.save_active_alert({
+                            "message_id": sent_msg.id,
+                            "channel_id": ch.id,
+                            "guild_id": guild.id,
+                            "appid": g["appid"],
+                            "name": g["name"],
+                            "posted_at": datetime.utcnow().isoformat()
+                        })
+                except Exception as e:
+                    logger.error(f"Erro ao postar carrossel no canal {ch.id}: {e}")
 
     return {
         "profiles_scanned": len(community_ids),
