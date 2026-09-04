@@ -85,7 +85,9 @@ def send_discord_notification(
     if discount_percent > 0:
         fields.append({"name": "🔥 Desconto", "value": f"**-{discount_percent}%**", "inline": True})
 
-    fields.append({"name": "📉 Menor Histórico", "value": f"**R$ {historical_low:.2f}**", "inline": True})
+    is_at_lowest = (current_price <= (historical_low + 0.05)) if historical_low > 0 else True
+    hist_status = "Sim" if is_at_lowest else f"Não (Menor: R$ {historical_low:.2f})"
+    fields.append({"name": "📉 Menor Preço Histórico", "value": hist_status, "inline": True})
     
     if review_summary:
         fields.append({"name": "⭐ Avaliações na Steam", "value": review_summary, "inline": True})
@@ -117,7 +119,7 @@ def send_discord_notification(
         "color": color,
         "fields": fields,
         "footer": {
-            "text": f"Steam Assistant • Menor Preço Histórico (BRL) • {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+            "text": f"Steam Assistant • {datetime.now().strftime('%d/%m/%Y %H:%M')}"
         }
     }
 

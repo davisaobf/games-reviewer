@@ -148,8 +148,8 @@ def enviar_alerta_discord(
     details = steam_client.get_game_details(appid) if appid else {}
     
     sent = send_discord_notification(
-        title=f"{titulo_jogo} - MENOR PREÇO HISTÓRICO",
-        description="O jogo atualmente está no seu menor preço histórico registrado.",
+        title=titulo_jogo,
+        description="Oferta disponível na Steam.",
         game_title=titulo_jogo,
         current_price=preco_atual,
         historical_low=menor_historico,

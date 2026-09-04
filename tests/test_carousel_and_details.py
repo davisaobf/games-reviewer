@@ -102,6 +102,50 @@ class TestCarouselAndDetails(unittest.TestCase):
         self.assertTrue(view.btn_next.disabled)
         self.assertEqual(view.btn_counter.label, "🎮 2 de 2")
 
+    def test_deal_and_recommendation_titles_and_objective_status(self):
+        # Case 1: Standard deal at historical low
+        deal_game = {
+            "name": "Hollow Knight",
+            "appid": 367520,
+            "current_price": 23.49,
+            "historical_low": 23.49,
+            "discount_percent": 50,
+            "is_recommendation": False
+        }
+        embed = create_deal_embed(deal_game, page_info="1/3")
+        self.assertEqual(embed.title, "Hollow Knight (1/3)")
+        self.assertNotIn("MENOR PREÇO", embed.title)
+        self.assertNotIn("HISTÓRICO", embed.title)
+        self.assertIn("📉 **Menor Preço Histórico:** Sim", embed.description)
+
+        # Case 2: Standard deal NOT at historical low
+        deal_not_lowest = {
+            "name": "Celeste",
+            "appid": 504230,
+            "current_price": 29.99,
+            "historical_low": 14.99,
+            "discount_percent": 25,
+            "is_recommendation": False
+        }
+        embed_not_low = create_deal_embed(deal_not_lowest)
+        self.assertEqual(embed_not_low.title, "Celeste")
+        self.assertIn("📉 **Menor Preço Histórico:** Não (Menor: R$ 14.99)", embed_not_low.description)
+
+        # Case 3: Community recommendation deal
+        rec_game = {
+            "name": "Dead Cells",
+            "appid": 588650,
+            "current_price": 47.49,
+            "historical_low": 47.49,
+            "discount_percent": 20,
+            "is_recommendation": True
+        }
+        embed_rec = create_deal_embed(rec_game, page_info="2/3")
+        self.assertEqual(embed_rec.title, "Recomendação (2/3): Dead Cells")
+        self.assertNotIn("HISTÓRICA", embed_rec.title.upper())
+        self.assertNotIn("NOVA", embed_rec.title.upper())
+
 
 if __name__ == "__main__":
     unittest.main()
+

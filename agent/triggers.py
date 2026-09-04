@@ -116,8 +116,8 @@ async def execute_price_and_news_scan(force: bool = False) -> Dict[str, Any]:
                 player_modes = game_details.get("player_modes", [])
 
                 sent = send_discord_notification(
-                    title=f"{name} - MENOR PREÇO HISTÓRICO",
-                    description="O jogo atualmente está no seu menor preço histórico registrado.",
+                    title=name,
+                    description="Oferta disponível na Steam.",
                     game_title=name,
                     current_price=current_price,
                     historical_low=price_eval["historical_low"],

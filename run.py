@@ -171,8 +171,8 @@ def test_discord_webhook():
     details = client.get_game_details(2444750) or {}
 
     success = send_discord_notification(
-        title="Shape of Dreams - MENOR PREÇO HISTÓRICO",
-        description="O jogo atualmente está no seu menor preço histórico registrado.",
+        title="Shape of Dreams",
+        description="Oferta disponível na Steam.",
         game_title="Shape of Dreams",
         current_price=24.99,
         historical_low=24.99,

@@ -798,7 +798,7 @@ class RecommendationCarouselView(discord.ui.View):
         header_img = g.get("header_image")
 
         embed = discord.Embed(
-            title=f"💡 Recomendação ({page_info}): {name}",
+            title=f"Recomendação ({page_info}): {name}",
             description=(
                 f"**Por que vale a pena:** {reason}\n\n"
                 f"💵 **Preço na Steam:** {price_txt}{disc_txt}\n\n"
@@ -1227,8 +1227,8 @@ async def run_community_price_check(is_periodic: bool = False, source_channel: O
                     mention_str = f"\n🔔 **Membros notificados:** " + " ".join(mentions)
 
                 content_header = (
-                    f"🚨 **Alerta de Menor Preço Histórico — {len(triggered_games)} Ofertas Detectadas!**\n"
-                    f"Use o carrossel abaixo para navegar entre todas as ofertas:{mention_str}"
+                    f"🎯 **{len(triggered_games)} Ofertas Detectadas!**\n"
+                    f"Use o carrossel abaixo para navegar entre as ofertas:{mention_str}"
                 )
 
                 view = PromoCarouselView(triggered_games)
