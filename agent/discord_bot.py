@@ -384,12 +384,12 @@ async def cmd_minha_wishlist(interaction: discord.Interaction):
 
     if not historical_deals:
         embed = discord.Embed(
-            title="🔍 Sua Wishlist — Nenhuma Promoção no Menor Preço Histórico",
+            title="🔍 Sua Wishlist — Nenhuma Oferta Encontrada",
             description=(
                 f"• **Perfil verificado:** `{steam_id}`\n"
                 f"• **Jogos avaliados na sua wishlist:** {len(wishlist)}\n\n"
-                "Nenhum jogo da sua lista de desejos atingiu o menor preço histórico no momento.\n"
-                "Você será notificado automaticamente assim que qualquer título da sua lista bater o recorde de preço!"
+                "Nenhum jogo da sua lista de desejos está em promoção no momento.\n"
+                "Você será notificado automaticamente assim que qualquer título da sua lista entrar em oferta!"
             ),
             color=0x95A5A6
         )
@@ -399,7 +399,7 @@ async def cmd_minha_wishlist(interaction: discord.Interaction):
     if len(historical_deals) > 1:
         view = PromoCarouselView(historical_deals)
         await interaction.followup.send(
-            content=f"🎯 **Sua Wishlist: {len(historical_deals)} jogos no Menor Preço Histórico!**\nNavegue pelas ofertas no carrossel abaixo:",
+            content=f"🎯 **Sua Wishlist: {len(historical_deals)} ofertas encontradas!**\nUse o carrossel abaixo para navegar entre as ofertas:",
             embed=view.create_embed(),
             view=view,
             ephemeral=True
@@ -407,7 +407,7 @@ async def cmd_minha_wishlist(interaction: discord.Interaction):
     else:
         embed = create_deal_embed(historical_deals[0])
         await interaction.followup.send(
-            content="🎯 **Sua Wishlist: 1 jogo no Menor Preço Histórico!**",
+            content="🎯 **Sua Wishlist: 1 oferta encontrada!**",
             embed=embed,
             ephemeral=True
         )
@@ -652,23 +652,26 @@ def create_deal_embed(g: dict, page_info: Optional[str] = None) -> discord.Embed
     header_img = g.get("header_image")
 
     is_rec = g.get("is_recommendation", False)
+    page_suffix = f" ({page_info})" if page_info else ""
+
     if is_rec:
-        title_prefix = f"💡 RECOMENDAÇÃO HISTÓRICA ({page_info}): " if page_info else "💡 NOVA RECOMENDAÇÃO HISTÓRICA: "
-        header_intro = "🎮 **Recomendação baseada nas preferências e wishlists da comunidade!**\nEste título atingiu seu **menor preço histórico já registrado em Reais**!\n\n"
+        title = f"Recomendação{page_suffix}: {name}"
         color = 0x1ABC9C
     else:
-        title_prefix = f"🚨 MENOR PREÇO HISTÓRICO ({page_info}): " if page_info else "🚨 NOVO MENOR PREÇO HISTÓRICO: "
-        header_intro = "O jogo atingiu ou superou seu **menor preço histórico já registrado em Reais**!\n\n"
+        title = f"{name}{page_suffix}"
         color = 0x2ECC71
 
+    # Objective indicator: simply states whether it is at lowest price or not
+    is_at_lowest = (current_price <= (historical_low + 0.05)) if historical_low > 0 else True
+    hist_status = "Sim" if is_at_lowest else f"Não (Menor: R$ {historical_low:.2f})"
+
     embed = discord.Embed(
-        title=f"{title_prefix}{name}",
+        title=title,
         description=(
-            f"{header_intro}"
             f"💵 **Preço Atual:** R$ {current_price:.2f} `(-{discount}%)`\n"
-            f"📉 **Menor Histórico:** R$ {historical_low:.2f}\n"
+            f"📉 **Menor Preço Histórico:** {hist_status}\n"
             f"⏰ **Término da Oferta:** {promo_end}\n"
-            f"⭐ **Consenso:** {score_desc} ({pos_pct}% positivas)\n"
+            f"⭐ **Avaliações:** {score_desc} ({pos_pct}% positivas)\n"
             f"🏷️ **Tags:** {tag_str}\n\n"
             f"[Acessar na Loja Steam]({store_url})"
         ),
@@ -857,8 +860,8 @@ async def cmd_check(interaction: discord.Interaction):
             all_pings.update(g.get("users_to_ping", []))
         mention_str = f"\n🔔 **Membros notificados:** " + " ".join(f"<@{uid}>" for uid in all_pings) if all_pings else ""
         content = (
-            f"🚨 **Varredura Concluída: {len(games)} jogos no Menor Preço Histórico!**\n"
-            f"Navegue pelas ofertas completas no carrossel abaixo:{mention_str}"
+            f"🔍 **Varredura Concluída: {len(games)} ofertas encontradas!**\n"
+            f"Use o carrossel abaixo para navegar entre as ofertas:{mention_str}"
         )
         view = PromoCarouselView(games)
         await interaction.followup.send(content=content, embed=view.create_embed(), view=view)
