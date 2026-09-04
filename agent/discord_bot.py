@@ -1225,7 +1225,7 @@ async def run_community_price_check(is_periodic: bool = False, source_channel: O
 
                 content_header = (
                     f"🚨 **Alerta de Menor Preço Histórico — {len(triggered_games)} Ofertas Detectadas!**\n"
-                    f"Para evitar poluição do chat e sobrecarga de notificações, use o **carrossel lateral** abaixo para navegar entre todas as ofertas:{mention_str}"
+                    f"Use o carrossel abaixo para navegar entre todas as ofertas:{mention_str}"
                 )
 
                 view = PromoCarouselView(triggered_games)
