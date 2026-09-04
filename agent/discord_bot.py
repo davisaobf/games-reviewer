@@ -273,13 +273,13 @@ async def cmd_tags(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
-@bot.tree.command(name="preco", description="Define o limite máximo de preço (BRL) para receber notificações")
+@bot.tree.command(name="preco", description="Define o limite máximo de preço para receber notificações")
 async def cmd_preco(interaction: discord.Interaction):
     user_pref = pref_manager.get_user_preference(interaction.user.id)
     current_max = user_pref.get("max_price", 999999.0)
 
     embed = discord.Embed(
-        title="💰 Filtro de Faixa de Preço (BRL)",
+        title="💰 Filtro de Faixa de Preço",
         description=(
             "Escolha o valor máximo que você aceita pagar em uma promoção.\n\n"
             "Se um jogo atingir o menor preço histórico, mas custar mais que o seu teto, "
@@ -319,7 +319,7 @@ async def cmd_vincular_steam(interaction: discord.Interaction, perfil_ou_url: st
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@bot.tree.command(name="minha_wishlist", description="Exibe os jogos da sua Wishlist cadastrada com preços em R$")
+@bot.tree.command(name="minha_wishlist", description="Exibe os jogos da sua Wishlist cadastrada")
 async def cmd_minha_wishlist(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     user_pref = pref_manager.get_user_preference(interaction.user.id)
@@ -388,28 +388,51 @@ async def cmd_painel(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
     # --------------------------------------------------------------------------
-    # Mensagem 1: Configuração de Categoria de Jogos (12 Tags Oficiais Steam)
+    # Mensagem 1: Categorias de Ação & Sobrevivência (6 Tags Oficiais Steam)
     # --------------------------------------------------------------------------
-    tag_lines = [
-        f"{emoji} • **{tag_info['label'].split(' ', 1)[1]}** — {tag_info['description']}"
-        for emoji, tag_key in TAG_EMOJI_MAP.items()
-        if (tag_info := AVAILABLE_TAGS.get(tag_key))
-    ]
+    group1_tags = ["action", "adventure", "survival", "pvp", "rpg", "horror"]
+    group1_lines = []
+    group1_emojis = []
+    for emoji, tag_key in TAG_EMOJI_MAP.items():
+        if tag_key in group1_tags and (tag_info := AVAILABLE_TAGS.get(tag_key)):
+            group1_lines.append(f"{emoji} • **{tag_info['label'].split(' ', 1)[1]}** — {tag_info['description']}")
+            group1_emojis.append(emoji)
 
-    embed_categories = discord.Embed(
-        title="🎮 Games Reviewer — Painel de Alertas",
+    embed_cat1 = discord.Embed(
+        title="🎮 Preferências: Ação, Aventura & Sobrevivência",
         description=(
-            "Configure suas preferências de notificação reagindo aos emojis abaixo. "
-            "Você receberá alertas personalizados quando os jogos de seu gosto estiverem no menor preço historico.\n\n"
-            + "\n".join(tag_lines)
+            "Reaja aos emojis abaixo para receber alertas quando jogos destes estilos atingirem o menor preço histórico:\n\n"
+            + "\n".join(group1_lines)
         ),
         color=0x5865F2
     )
-    embed_categories.set_footer(text="Reaja abaixo com os emojis das categorias que você deseja acompanhar.")
-    msg_cat = await interaction.channel.send(embed=embed_categories)
+    embed_cat1.set_footer(text="Reaja abaixo para ativar ou desativar cada categoria.")
+    msg_cat1 = await interaction.channel.send(embed=embed_cat1)
 
     # --------------------------------------------------------------------------
-    # Mensagem 2: Configuração de Orçamento
+    # Mensagem 2: Categorias de Estratégia, Lógica & Indie (6 Tags Oficiais Steam)
+    # --------------------------------------------------------------------------
+    group2_tags = ["strategy", "puzzle", "indie", "roguelike", "management", "tower_defense"]
+    group2_lines = []
+    group2_emojis = []
+    for emoji, tag_key in TAG_EMOJI_MAP.items():
+        if tag_key in group2_tags and (tag_info := AVAILABLE_TAGS.get(tag_key)):
+            group2_lines.append(f"{emoji} • **{tag_info['label'].split(' ', 1)[1]}** — {tag_info['description']}")
+            group2_emojis.append(emoji)
+
+    embed_cat2 = discord.Embed(
+        title="♟️ Preferências: Estratégia, Lógica & Indie",
+        description=(
+            "Reaja aos emojis abaixo para habilitar notificações das seguintes categorias:\n\n"
+            + "\n".join(group2_lines)
+        ),
+        color=0x3498DB
+    )
+    embed_cat2.set_footer(text="Reaja abaixo para ativar ou desativar cada categoria.")
+    msg_cat2 = await interaction.channel.send(embed=embed_cat2)
+
+    # --------------------------------------------------------------------------
+    # Mensagem 3: Configuração de Orçamento Máximo
     # --------------------------------------------------------------------------
     price_lines = [
         f"{tier['label']}"
@@ -417,50 +440,57 @@ async def cmd_painel(interaction: discord.Interaction):
     ]
 
     embed_budget = discord.Embed(
-        title="💰 Configuração de Orçamento",
+        title="💰 Filtro de Orçamento Máximo",
         description=(
-            "Defina seu teto máximo de preço reagindo aos emojis abaixo. "
-            "O bot só notificará você se a promoção estiver dentro deste limite:\n\n"
+            "Defina o valor máximo que você aceita pagar em uma promoção. "
+            "Você só receberá notificações para jogos dentro deste limite:\n\n"
             + "\n".join(price_lines)
         ),
         color=0x2ECC71
     )
-    embed_budget.set_footer(text="Reaja abaixo para definir seu limite de preço máximo em R$.")
+    embed_budget.set_footer(text="Reaja com um emoji para definir seu limite de preço.")
     msg_budget = await interaction.channel.send(embed=embed_budget)
 
-    # Persist both message IDs for guild routing
-    pref_manager.set_panel_messages(interaction.guild_id, msg_cat.id, msg_budget.id)
+    # Persist all category and budget message IDs for guild routing
+    pref_manager.set_panel_messages(interaction.guild_id, [msg_cat1.id, msg_cat2.id], msg_budget.id)
 
     # --------------------------------------------------------------------------
-    # Mensagem 3: Comandos Úteis & Funcionamento
+    # Mensagem 4: Guia Rápido & Comandos Úteis
     # --------------------------------------------------------------------------
     embed_commands = discord.Embed(
-        title="⚡ Comandos Úteis & Funcionamento",
+        title="⚡ Guia Rápido & Comandos",
         description=(
-            "• `/minha_wishlist` — Exibe os jogos da sua wishlist com preços e descontos em R$.\n"
+            "• `/minha_wishlist` — Exibe os jogos da sua wishlist cadastrada.\n"
             "• `/vincular_steam <url>` — Adiciona sua lista de desejos ao radar comunitário.\n"
             "• `/check` — Força uma varredura de menores preços históricos nas wishlists.\n"
             "• `/recomendar [estilo]` — Recomendações de jogos inéditos baseadas no seu histórico de horas.\n"
             "• `/reviews <jogo>` — Recomendações e análises feitas pela comunidade Steam e Reddit.\n"
             "• `/noticias` — Exibe notícias selecionadas sobre jogos e atualizações.\n"
             "• `/definir_canal` — Define o canal oficial para os alertas de promoções.\n\n"
-            "🛡️ **Filtro de Menor Preço Histórico (Zero Spam):**\n"
-            "O bot monitora os preços cruzando dados com bases históricas de promoções. "
-            "Se uma promoção não atingir o menor preço histórico registrado, nenhuma notificação é enviada."
+            "🛡️ **Critério de Notificação (Zero Spam):**\n"
+            "Os alertas são emitidos exclusivamente quando uma promoção atinge ou supera o menor preço histórico já registrado em lojas oficiais."
         ),
         color=0xF1C40F
     )
     await interaction.channel.send(embed=embed_commands)
 
-    # Add reactions to Message 1 (12 tags)
-    for emoji in TAG_EMOJI_MAP.keys():
+    # Add reactions to Message 1 (6 tags)
+    for emoji in group1_emojis:
         try:
-            await msg_cat.add_reaction(emoji)
+            await msg_cat1.add_reaction(emoji)
             await asyncio.sleep(0.3)
         except Exception:
             pass
 
-    # Add reactions to Message 2 (5 prices)
+    # Add reactions to Message 2 (6 tags)
+    for emoji in group2_emojis:
+        try:
+            await msg_cat2.add_reaction(emoji)
+            await asyncio.sleep(0.3)
+        except Exception:
+            pass
+
+    # Add reactions to Message 3 (5 prices)
     for emoji in PRICE_EMOJI_MAP.keys():
         try:
             await msg_budget.add_reaction(emoji)
@@ -469,7 +499,7 @@ async def cmd_painel(interaction: discord.Interaction):
             pass
 
     await interaction.followup.send(
-        f"✅ Painel de 3 mensagens publicado com sucesso em {interaction.channel.mention}!",
+        f"✅ Painel de 4 mensagens publicado com sucesso em {interaction.channel.mention}!",
         ephemeral=True
     )
 
@@ -483,10 +513,10 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         return
 
     panel_msgs = pref_manager.get_panel_messages(payload.guild_id)
-    cat_msg_id = panel_msgs.get("category_message_id")
+    cat_msg_ids = panel_msgs.get("category_message_ids", [])
     budget_msg_id = panel_msgs.get("budget_message_id")
 
-    if payload.message_id not in (cat_msg_id, budget_msg_id):
+    if payload.message_id not in cat_msg_ids and payload.message_id != budget_msg_id:
         return
 
     emoji_str = str(payload.emoji)
@@ -497,25 +527,25 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         except Exception:
             user = None
 
-    # Message 1: Categories
-    if payload.message_id == cat_msg_id and emoji_str in TAG_EMOJI_MAP:
+    # Messages 1 & 2: Categories
+    if payload.message_id in cat_msg_ids and emoji_str in TAG_EMOJI_MAP:
         tag_id = TAG_EMOJI_MAP[emoji_str]
         pref_manager.add_user_tag(payload.user_id, tag_id)
         tag_label = AVAILABLE_TAGS[tag_id]["label"]
         if user:
             try:
-                await user.send(f"🎯 **Categoria Ativada!** Você agora receberá alertas para: **{tag_label}**.")
+                await user.send(f"🎯 **Categoria Ativada:** Você agora receberá alertas para: **{tag_label}**.")
             except Exception:
                 pass
 
-    # Message 2: Budget
+    # Message 3: Budget
     elif payload.message_id == budget_msg_id and emoji_str in PRICE_EMOJI_MAP:
         max_price = PRICE_EMOJI_MAP[emoji_str]
         pref_manager.update_user_max_price(payload.user_id, max_price)
         price_text = f"Até R$ {max_price:.2f}" if max_price < 99999 else "Qualquer Preço (Sem Limite)"
         if user:
             try:
-                await user.send(f"💰 **Orçamento Atualizado!** Seu limite de preço foi definido para: **{price_text}**.")
+                await user.send(f"💰 **Orçamento Atualizado:** Seu limite de preço foi definido para: **{price_text}**.")
             except Exception:
                 pass
 
@@ -529,9 +559,9 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
         return
 
     panel_msgs = pref_manager.get_panel_messages(payload.guild_id)
-    cat_msg_id = panel_msgs.get("category_message_id")
+    cat_msg_ids = panel_msgs.get("category_message_ids", [])
 
-    if payload.message_id == cat_msg_id:
+    if payload.message_id in cat_msg_ids:
         emoji_str = str(payload.emoji)
         if emoji_str in TAG_EMOJI_MAP:
             tag_id = TAG_EMOJI_MAP[emoji_str]

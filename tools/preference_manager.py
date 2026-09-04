@@ -222,19 +222,29 @@ class PreferenceManager:
         guild_cfg = config.get(str(guild_id), {})
         return guild_cfg.get("announcement_channel_id")
 
-    def set_panel_messages(self, guild_id: int, category_msg_id: int, budget_msg_id: int):
+    def set_panel_messages(self, guild_id: int, category_msg_ids: Any, budget_msg_id: int):
         config = self._read_json(SERVER_CONFIG_FILE)
         if str(guild_id) not in config:
             config[str(guild_id)] = {}
-        config[str(guild_id)]["panel_category_message_id"] = category_msg_id
+        if isinstance(category_msg_ids, int):
+            ids = [category_msg_ids]
+        else:
+            ids = list(category_msg_ids)
+        config[str(guild_id)]["panel_category_message_ids"] = ids
+        if ids:
+            config[str(guild_id)]["panel_category_message_id"] = ids[0]
         config[str(guild_id)]["panel_budget_message_id"] = budget_msg_id
         self._write_json(SERVER_CONFIG_FILE, config)
 
-    def get_panel_messages(self, guild_id: int) -> Dict[str, Optional[int]]:
+    def get_panel_messages(self, guild_id: int) -> Dict[str, Any]:
         config = self._read_json(SERVER_CONFIG_FILE)
         guild_cfg = config.get(str(guild_id), {})
+        cat_ids = guild_cfg.get("panel_category_message_ids", [])
+        if not cat_ids and guild_cfg.get("panel_category_message_id"):
+            cat_ids = [guild_cfg.get("panel_category_message_id")]
         return {
-            "category_message_id": guild_cfg.get("panel_category_message_id"),
+            "category_message_ids": cat_ids,
+            "category_message_id": cat_ids[0] if cat_ids else None,
             "budget_message_id": guild_cfg.get("panel_budget_message_id")
         }
 

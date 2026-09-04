@@ -7,6 +7,7 @@ import time
 import urllib.request
 import urllib.error
 import urllib.parse
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -16,6 +17,11 @@ from bs4 import BeautifulSoup
 from config import settings, CACHE_DIR
 
 logger = logging.getLogger("GamesReviewer.SteamAPI")
+
+PT_MONTHS = [
+    "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
+]
 
 
 class SteamClient:
@@ -387,21 +393,59 @@ class SteamClient:
         url = f"https://store.steampowered.com/app/{appid}/?cc=br&l=brazilian"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Cookie": "birthtime=283993201; mature_content=1; lastagecheckage=1-0-1990; wants_mature_content=1"
         }
         try:
             resp = requests.get(url, headers=headers, timeout=6)
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, "html.parser")
+
+                # Strategy 1: Check for JS Daily Deal / Discount countdown timer timestamp
+                timer_match = re.search(r'Init\w*Timer\s*\([^,]+,\s*(\d{10})\s*\)', resp.text)
+                if timer_match:
+                    end_ts = int(timer_match.group(1))
+                    dt = datetime.fromtimestamp(end_ts)
+                    month_name = PT_MONTHS[dt.month - 1]
+                    remaining_sec = end_ts - int(time.time())
+
+                    if 0 < remaining_sec < 172800:  # Under 48 hours
+                        hours = max(1, remaining_sec // 3600)
+                        return {
+                            "has_end_date": True,
+                            "text": f"Válida até {dt.day} de {month_name} (restam ~{hours}h)",
+                            "timestamp": end_ts
+                        }
+                    elif remaining_sec > 0:
+                        return {
+                            "has_end_date": True,
+                            "text": f"Válida até {dt.day} de {month_name}",
+                            "timestamp": end_ts
+                        }
+
+                # Strategy 2: Check static countdown text
                 countdown = soup.find(class_="game_purchase_discount_countdown")
                 if countdown:
                     raw_text = countdown.get_text(strip=True)
-                    match = re.search(r"(?:oferta\s+)?v[áa]lida\s+at[ée]\s+(.+)", raw_text, re.IGNORECASE)
-                    clean_text = match.group(0).capitalize() if match else raw_text
-                    return {
-                        "has_end_date": True,
-                        "text": clean_text
-                    }
+                    # Match "oferta válida até 8 de setembro" or "válida até 8 de setembro" or "termina em 8 de setembro"
+                    match = re.search(r'(?:(?:oferta\s+)?v[áa]lida\s+at[ée]|termina\s+em)\s+([^!;.]+)', raw_text, re.IGNORECASE)
+                    if match:
+                        clean = match.group(0).strip().capitalize()
+                        return {
+                            "has_end_date": True,
+                            "text": clean
+                        }
+                    # If text contains "válida por" with dangling timer span
+                    if "v[áa]lida por" in raw_text.lower():
+                        return {
+                            "has_end_date": True,
+                            "text": "Termina em menos de 48 horas"
+                        }
+                    if len(raw_text) > 3 and not raw_text.endswith(";"):
+                        return {
+                            "has_end_date": True,
+                            "text": raw_text.capitalize()
+                        }
         except Exception as e:
             logger.debug(f"Erro ao buscar data de término para {appid}: {e}")
 

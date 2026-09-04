@@ -50,11 +50,12 @@ class TestReactionPanel(unittest.TestCase):
 
     def test_panel_split_messages_persistence(self):
         guild_id = 777111
-        cat_id = 12345678
+        cat_ids = [12345678, 12345679]
         budget_id = 87654321
-        self.mgr.set_panel_messages(guild_id, cat_id, budget_id)
+        self.mgr.set_panel_messages(guild_id, cat_ids, budget_id)
         msgs = self.mgr.get_panel_messages(guild_id)
-        self.assertEqual(msgs["category_message_id"], cat_id)
+        self.assertEqual(msgs["category_message_ids"], cat_ids)
+        self.assertEqual(msgs["category_message_id"], cat_ids[0])
         self.assertEqual(msgs["budget_message_id"], budget_id)
 
     def test_active_alerts_tracking_and_removal(self):

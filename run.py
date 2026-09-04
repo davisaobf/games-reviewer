@@ -119,10 +119,10 @@ async def run_daemon_loop():
     try:
         while True:
             try:
-                print(f"[{logging.time.strftime('%Y-%m-%d %H:%M:%S')}] Executando ciclo de verificação...")
+                print(f"[{logging.time.strftime('%Y-%m-%d %H:%M:%S')}] Executando ciclo de verificação...", flush=True)
                 result = await execute_price_and_news_scan(force=False)
-                print(f"Varredura finalizada. {result['alerts_triggered']} novos alertas disparados ({result.get('already_notified_skips', 0)} já notificados ignorados).")
-                print(f"Aguardando próximo ciclo em {interval_hours:.1f} horas...\n")
+                print(f"Varredura finalizada. {result['alerts_triggered']} novos alertas disparados ({result.get('already_notified_skips', 0)} já notificados ignorados).", flush=True)
+                print(f"Aguardando próximo ciclo em {interval_hours:.1f} horas...\n", flush=True)
                 await asyncio.sleep(settings.check_interval_seconds)
             except (KeyboardInterrupt, asyncio.CancelledError):
                 print("\nServiço autônomo finalizado pelo usuário.")
