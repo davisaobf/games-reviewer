@@ -8,14 +8,14 @@ class TestITADPriceFilter(unittest.TestCase):
     def setUp(self):
         # Clean up any test keys before each test
         history = load_local_price_history()
-        for appid in ["999901", "999902", "999903", "999904"]:
+        for appid in ["999901", "999902", "999903", "999904", "999999"]:
             history.pop(appid, None)
         save_local_price_history(history)
 
     def tearDown(self):
         # Clean up any test keys after each test
         history = load_local_price_history()
-        for appid in ["999901", "999902", "999903", "999904"]:
+        for appid in ["999901", "999902", "999903", "999904", "999999"]:
             history.pop(appid, None)
         save_local_price_history(history)
 
@@ -57,6 +57,17 @@ class TestITADPriceFilter(unittest.TestCase):
         """If there is no active discount (discount_percent == 0), alert must not trigger."""
         res = evaluate_price_alert("Full Price Game", 100.00, 0, 999904)
         self.assertFalse(res["trigger_alert"])
+
+    def test_cheapshark_rejects_subpar_discount(self):
+        """Friends vs Friends at 38% discount must NOT trigger alert because historical low discount is 81%."""
+        res = evaluate_price_alert("Friends vs Friends", 32.98, 38, appid=1785150)
+        self.assertFalse(res["trigger_alert"], "38% de desconto em Friends vs Friends não deve disparar alerta de menor preço histórico.")
+        self.assertLess(res["historical_low"], 32.98, "O menor preço histórico calculado deve ser menor que R$ 32,98.")
+
+    def test_unverified_first_seen_does_not_trigger(self):
+        """A game seen for the first time without external historical data must establish baseline without triggering alert."""
+        res = evaluate_price_alert("Brand New Mystery Game", 50.00, 20, appid=999999)
+        self.assertFalse(res["trigger_alert"], "Primeira leitura sem validação externa nunca deve disparar alerta de menor histórico.")
 
 
 if __name__ == "__main__":

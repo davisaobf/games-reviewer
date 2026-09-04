@@ -235,25 +235,28 @@ async def cmd_help(interaction: discord.Interaction):
     embed.add_field(
         name="⚡ Análises e Varredura",
         value=(
-            "`/check`: Força uma varredura imediata de menores preços em todas as wishlists.\n"
-            "`/reviews <jogo>`: Consulta o consenso da comunidade na Steam e discussões do Reddit.\n"
-            "`/recomendar [estilo]`: Pede uma recomendação cirúrgica para a IA.\n"
-            "`/noticias`: Exibe manchetes quentes do Radar de games."
+            "`/check`: Força uma varredura de menores preços em todas as wishlists cadastradas.\n"
+            "`/reviews <jogo>`: Recomendações e análises feitas pela comunidade Steam e Reddit.\n"
+            "`/recomendar [estilo]`: Recomendações de jogos baseadas no seu histórico de jogo.\n"
+            "`/noticias`: Exibe notícias selecionadas sobre jogos e atualizações."
         ),
         inline=False
     )
 
     embed.add_field(
         name="⚙️ Administração",
-        value="`/definir_canal [canal]`: Define o canal do Discord onde o bot postará os alertas automáticos.",
+        value=(
+            "`/definir_canal [canal]`: Define o canal oficial para alertas de promoções.\n"
+            "`/painel`: Publica o painel de configuração por reações."
+        ),
         inline=False
     )
 
-    embed.set_footer(text="Filtro estrito: se o jogo for R$ 0,01 acima do menor histórico, ele morre silenciosamente.")
+    embed.set_footer(text="Filtro estrito: notificações enviadas apenas no menor preço histórico verificado.")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-@bot.tree.command(name="tags", description="Escolha os gêneros e categorias de jogos que deseja acompanhar")
+@bot.tree.command(name="tags", description="Configura as categorias e gêneros de jogos para notificações")
 async def cmd_tags(interaction: discord.Interaction):
     user_pref = pref_manager.get_user_preference(interaction.user.id)
     current_tags = user_pref.get("tags", [])
@@ -270,7 +273,7 @@ async def cmd_tags(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
-@bot.tree.command(name="preco", description="Defina a faixa máxima de preço (BRL) para receber notificações")
+@bot.tree.command(name="preco", description="Define o limite máximo de preço (BRL) para receber notificações")
 async def cmd_preco(interaction: discord.Interaction):
     user_pref = pref_manager.get_user_preference(interaction.user.id)
     current_max = user_pref.get("max_price", 999999.0)
@@ -288,7 +291,7 @@ async def cmd_preco(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
-@bot.tree.command(name="vincular_steam", description="Vincule sua Wishlist da Steam para alimentar o radar de ofertas")
+@bot.tree.command(name="vincular_steam", description="Vincula sua Wishlist da Steam para monitoramento de promoções")
 @app_commands.describe(perfil_ou_url="Seu ID Steam, nome de usuário ou link do perfil (ex: davii123)")
 async def cmd_vincular_steam(interaction: discord.Interaction, perfil_ou_url: str):
     await interaction.response.defer(ephemeral=True)
@@ -350,7 +353,7 @@ async def cmd_minha_wishlist(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@bot.tree.command(name="definir_canal", description="Define o canal onde os alertas de menor preço histórico serão postados")
+@bot.tree.command(name="definir_canal", description="Define o canal oficial para envio dos alertas de promoções")
 @app_commands.describe(canal="Canal para os anúncios (opcional: deixe em branco para usar o canal atual onde você está)")
 async def cmd_definir_canal(interaction: discord.Interaction, canal: Optional[discord.abc.GuildChannel] = None):
     if interaction.user.guild_permissions and not (interaction.user.guild_permissions.manage_channels or interaction.user.guild_permissions.administrator):
@@ -376,7 +379,7 @@ async def cmd_definir_canal(interaction: discord.Interaction, canal: Optional[di
     await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(name="painel", description="Publica o painel de configuração por reações dividido em 3 mensagens")
+@bot.tree.command(name="painel", description="Publica o painel de preferências e categorias por reações")
 async def cmd_painel(interaction: discord.Interaction):
     if interaction.user.guild_permissions and not (interaction.user.guild_permissions.manage_channels or interaction.user.guild_permissions.administrator):
         await interaction.response.send_message("❌ Apenas administradores ou moderadores com permissão de 'Gerenciar Canais' podem publicar o painel.", ephemeral=True)
@@ -436,14 +439,14 @@ async def cmd_painel(interaction: discord.Interaction):
         description=(
             "• `/minha_wishlist` — Exibe os jogos da sua wishlist com preços e descontos em R$.\n"
             "• `/vincular_steam <url>` — Adiciona sua lista de desejos ao radar comunitário.\n"
-            "• `/check` — Força uma varredura imediata de promoções históricas ativas.\n"
-            "• `/reviews <jogo>` — Avaliações da comunidade na Steam e discussões do Reddit.\n"
-            "• `/noticias` — Manchetes do Radar Gamer filtradas.\n"
+            "• `/check` — Força uma varredura de menores preços históricos nas wishlists.\n"
+            "• `/recomendar [estilo]` — Recomendações de jogos inéditos baseadas no seu histórico de horas.\n"
+            "• `/reviews <jogo>` — Recomendações e análises feitas pela comunidade Steam e Reddit.\n"
+            "• `/noticias` — Exibe notícias selecionadas sobre jogos e atualizações.\n"
             "• `/definir_canal` — Define o canal oficial para os alertas de promoções.\n\n"
-            "🛡️ **A Regra de Ouro (Zero Spam):**\n"
-            "O bot monitora os preços cruzando com o banco mundial do IsThereAnyDeal. "
-            "Se o jogo estiver até mesmo **R$ 0,01 acima do menor preço histórico já registrado na vida**, "
-            "ele morre silenciosamente e você não é notificado."
+            "🛡️ **Filtro de Menor Preço Histórico (Zero Spam):**\n"
+            "O bot monitora os preços cruzando dados com bases históricas de promoções. "
+            "Se uma promoção não atingir o menor preço histórico registrado, nenhuma notificação é enviada."
         ),
         color=0xF1C40F
     )
@@ -626,7 +629,7 @@ class PromoCarouselView(discord.ui.View):
             await interaction.response.defer()
 
 
-@bot.tree.command(name="check", description="Força uma varredura imediata de menores preços históricos nas wishlists")
+@bot.tree.command(name="check", description="Verifica promoções ativas no menor preço histórico nas wishlists")
 async def cmd_check(interaction: discord.Interaction):
     await interaction.response.defer()
     results = await run_community_price_check(is_periodic=False)
@@ -663,7 +666,7 @@ async def cmd_check(interaction: discord.Interaction):
             await interaction.followup.send(embed=embed)
 
 
-@bot.tree.command(name="reviews", description="Consulta opiniões reais de jogadores na Steam e no Reddit")
+@bot.tree.command(name="reviews", description="Recomendações e análises feitas pela comunidade Steam e Reddit")
 @app_commands.describe(nome_do_jogo="Nome exato ou aproximado do jogo")
 async def cmd_reviews(interaction: discord.Interaction, nome_do_jogo: str):
     await interaction.response.defer()
@@ -705,7 +708,7 @@ async def cmd_reviews(interaction: discord.Interaction, nome_do_jogo: str):
     await interaction.followup.send(embed=embed)
 
 
-@bot.tree.command(name="noticias", description="Exibe as principais notícias do Radar filtradas pelo seu perfil")
+@bot.tree.command(name="noticias", description="Exibe notícias selecionadas sobre jogos e atualizações")
 async def cmd_noticias(interaction: discord.Interaction):
     await interaction.response.defer()
     news = bot.news_radar.get_relevant_news(min_score=2, max_items=4)
@@ -730,45 +733,42 @@ async def cmd_noticias(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
-@bot.tree.command(name="recomendar", description="Pede uma recomendação personalizada de jogo para o agente de IA")
-@app_commands.describe(estilo="Gênero ou características desejadas (ex: shooter tático, programação, roguelike)")
+@bot.tree.command(name="recomendar", description="Recomendações de jogos inéditos baseadas no seu perfil de horas jogadas")
+@app_commands.describe(estilo="Gênero ou características desejadas (ex: shooter tático, roguelike, estratégia)")
 async def cmd_recomendar(interaction: discord.Interaction, estilo: Optional[str] = None):
     await interaction.response.defer()
     query = estilo or "jogos com alto teto de habilidade mecânica ou lógica de automação"
 
     steam_client = SteamClient()
 
-    # 1. Real owned games with hours played
+    # 1. Real owned games with actual playtime (> 0 hours)
     owned_games = await asyncio.to_thread(steam_client.get_owned_games)
-    owned_sorted = sorted(owned_games, key=lambda x: x.get("playtime_forever", 0), reverse=True)
+    owned_played = [g for g in owned_games if g.get("playtime_forever", 0) > 0]
+    owned_sorted = sorted(owned_played, key=lambda x: x.get("playtime_forever", 0), reverse=True)
     top_played = [
         f"{g['name']} ({round(g.get('playtime_forever', 0) / 60, 1)}h)"
-        for g in owned_sorted[:12] if g.get("name")
+        for g in owned_sorted[:8] if g.get("name")
     ]
-    owned_names = [g.get("name", "").strip() for g in owned_games if g.get("name")]
+    all_owned_names = [g.get("name", "").strip() for g in owned_games if g.get("name")]
 
-    # 2. Wishlist games (desired only, NOT played)
-    wishlist = await asyncio.to_thread(steam_client.get_wishlist)
-    wishlist_names = [w["name"] for w in wishlist[:15] if w.get("name")]
+    top_played_str = ", ".join(top_played) if top_played else "Counter-Strike 2 (1266h), Warframe (815h), Palworld (584h)"
 
-    top_played_str = ", ".join(top_played) if top_played else "Counter-Strike 2 (1266h), Left 4 Dead 2 (30h), Terraria (8h)"
-    wishlist_str = ", ".join(wishlist_names[:10]) if wishlist_names else "Nenhum jogo recente na wishlist"
+    prompt = f"""Você é um consultor técnico de jogos da Steam.
+Analise o histórico real de jogos e tempo jogado do jogador:
+{top_played_str}
 
-    prompt = f"""Você é o Games Reviewer, um assistente analítico sênior de jogos da Steam.
-Um jogador pediu uma recomendação com o seguinte foco: "{query}".
+{f"O jogador solicitou recomendações específicas no estilo: '{query}'." if query and query != "jogos com alto teto de habilidade mecânica ou lógica de automação" else ""}
 
-DADOS REAIS DO PERFIL DO JOGADOR:
-- JOGOS QUE O JOGADOR MAIS JOGOU NA VIDA (Biblioteca Real com horas jogadas):
-  {top_played_str}
-- JOGOS QUE ESTÃO NA WISHLIST (Apenas lista de desejos para comprar no futuro, o jogador NÃO jogou ainda):
-  {wishlist_str}
+LISTA DE JOGOS QUE O JOGADOR JÁ POSSUI (É TERMINANTEMENTE PROIBIDO RECOMENDAR QUALQUER UM DESTES):
+{', '.join(sorted(all_owned_names))}
 
-REGRAS RÍGIDAS DE RECOMENDAÇÃO:
-1. É TERMINANTEMENTE PROIBIDO recomendar qualquer jogo que o jogador já possua na biblioteca (especialmente títulos como {', '.join(owned_names[:30])}).
-2. NÃO confunda a Wishlist com jogos jogados. Se citar um jogo da wishlist, deixe explícito que é um jogo que está na lista de desejos dele.
-3. Recomende 1 ou 2 jogos excelentes que o jogador AINDA NÃO POSSUI, com avaliações Muito Positivas ou Extremamente Positivas na Steam.
-4. Justifique com rigor técnico: mecânicas de precisão, ausência de RNG predatório, teto de habilidade (skill ceiling) ou profundidade lógica.
-5. Formate a resposta em Markdown direto, elegante e pronto para o Discord (sem rodeios)."""
+REGRAS RÍGIDAS DE FORMATAÇÃO E TOM:
+1. Responda OBRIGATORIAMENTE no modelo exato abaixo, sem títulos extras, sem introduções, sem saudações e sem conclusão:
+Baseado no seu histórico de [{top_played_str}], é recomendado os seguintes jogos: [Nome dos 2 jogos inéditos recomendados], pois eles [explicação concisa das mecânicas, teto de habilidade ou profundidade que se conectam aos gostos observados no perfil].
+
+2. NUNCA recomende jogos que o jogador já possui.
+3. NÃO use termos sensacionalistas ou clichês de IA (como 'cirúrgico', 'analítica', 'revolucionário', 'consenso de pessoas reais').
+4. NÃO inclua rodapé, aviso ou seção de 'Consenso'."""
 
     try:
         from google import genai
@@ -782,19 +782,16 @@ REGRAS RÍGIDAS DE RECOMENDAÇÃO:
     except Exception as e:
         logger.error(f"Erro ao gerar recomendação via Gemini: {e}")
         recommendation_text = (
-            f"Baseado no seu perfil em jogos de alta maestria mecânica como **{top_played_str.split(',')[0]}**:\n\n"
-            f"🎮 **Recomendação: Ultrakill / Factorio**\n"
-            f"• **Por que combina:** Avaliações *Extremamente Positivas* (≥ 97%), curva de maestria puramente técnica e teto de habilidade elevado sem depender de RNG.\n"
-            f"• **Filtro de Posse:** Confirmado que estes títulos não estão entre os {len(owned_games)} jogos da sua biblioteca."
+            f"Baseado no seu histórico de [{top_played_str}], é recomendado os seguintes jogos: [Rust, Deep Rock Galactic], "
+            f"pois eles oferecem sistemas de progressão duradouros, jogabilidade cooperativa refinada e mecânicas técnicas "
+            f"alinhadas aos seus títulos mais jogados."
         )
 
     embed = discord.Embed(
-        title=f"💡 Recomendação Personalizada: {query.capitalize()}",
+        title="💡 Recomendação",
         description=recommendation_text[:4000],
-        color=0x1ABC9C,
-        timestamp=discord.utils.utcnow()
+        color=0x1ABC9C
     )
-    embed.set_footer(text="Análise com base na sua biblioteca real de jogos jogados • Filtro anti-duplicação ativo")
     await interaction.followup.send(embed=embed)
 
 

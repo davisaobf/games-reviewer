@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 
 from config import settings, DATA_DIR
+from tools.cheapshark_api import CheapSharkClient
 
 logger = logging.getLogger("GamesReviewer.ITAD")
 
@@ -123,17 +124,29 @@ def evaluate_price_alert(
     current_price: float,
     discount_percent: int,
     appid: Optional[int] = None,
-    itad_client: Optional[ITADClient] = None
+    itad_client: Optional[ITADClient] = None,
+    cheapshark_client: Optional[CheapSharkClient] = None,
+    allow_unverified_first_seen: bool = False
 ) -> Dict[str, Any]:
     """Evaluates whether an alert should fire based on strict historical low rules.
     
     STRICT LOGICAL FILTER:
-    - If current_price <= historical_low: Trigger alert.
+    - If historical low is verified (via ITAD or CheapShark) and current_price <= historical_low: Trigger alert.
     - If current_price > historical_low: Die silently (trigger_alert = False).
+    - If NO historical data is available and game is first observed: Record baseline but DO NOT trigger alert
+      unless allow_unverified_first_seen=True.
     """
     client = itad_client or ITADClient()
     historical_low: Optional[float] = None
     shop_name = "Steam"
+    is_verified = False
+    is_new_all_time_low = False
+    is_at_or_below_lowest = False
+
+    history = load_local_price_history()
+    key = str(appid) if appid else game_title.lower()
+    local_record = history.get(key, {})
+    local_lowest = local_record.get("lowest_price")
 
     # 1. Attempt ITAD live check if key available
     if client.api_key:
@@ -143,38 +156,74 @@ def evaluate_price_alert(
             if itad_low and itad_low.get("amount") is not None:
                 historical_low = float(itad_low["amount"])
                 shop_name = itad_low.get("shop", "Steam")
+                is_verified = True
+                is_at_or_below_lowest = current_price <= (historical_low + 0.01)
+                is_new_all_time_low = current_price < (historical_low - 0.01)
 
-    # 2. Fallback to local recorded historical low
-    history = load_local_price_history()
-    key = str(appid) if appid else game_title.lower()
-    local_record = history.get(key, {})
-    local_lowest = local_record.get("lowest_price")
+    # 2. Fallback to CheapShark API (zero-auth public deals index)
+    if not is_verified and appid:
+        cs = cheapshark_client or CheapSharkClient()
+        cs_deal = cs.get_historical_deal(appid)
+        if cs_deal:
+            max_discount = cs_deal.get("max_discount_percent", 0)
+            if discount_percent > 0:
+                base_price_brl = current_price / (1.0 - (discount_percent / 100.0))
+            else:
+                base_price_brl = current_price
+            
+            est_historical_low_brl = round(base_price_brl * (1.0 - (max_discount / 100.0)), 2)
+            historical_low = est_historical_low_brl
+            is_verified = True
 
-    if historical_low is None:
+            # If current discount matches or beats the historical discount record
+            # (allowing 2.5% tolerance for third-party voucher/store rounding differences)
+            if discount_percent >= (max_discount - 2.5):
+                is_at_or_below_lowest = True
+                is_new_all_time_low = discount_percent > max_discount
+                historical_low = min(current_price, est_historical_low_brl)
+            else:
+                # Current discount is noticeably worse than all-time record (e.g. 38% vs 81%)
+                is_at_or_below_lowest = False
+                is_new_all_time_low = False
+
+    # 3. Fallback to local recorded historical low
+    if not is_verified:
         if local_lowest is not None:
             historical_low = float(local_lowest)
+            is_at_or_below_lowest = current_price <= (historical_low + 0.001)
+            is_new_all_time_low = current_price < historical_low
         else:
-            # First time seeing this price - record it
+            # First time seeing this price without external history:
             historical_low = current_price
+            is_at_or_below_lowest = allow_unverified_first_seen
+            is_new_all_time_low = False
 
-    # Strict check: Even 1 cent above causes silent exit
-    is_at_or_below_lowest = current_price <= (historical_low + 0.001)
-
-    # Update local historical low if a new record is reached
-    if current_price < historical_low:
+    # Update local historical record
+    if is_verified:
         history[key] = {
             "title": game_title,
-            "lowest_price": current_price,
+            "lowest_price": min(current_price, historical_low) if is_at_or_below_lowest else historical_low,
             "updated_at": time.time(),
-            "appid": appid
+            "appid": appid,
+            "verified": True
         }
         save_local_price_history(history)
     elif key not in history:
         history[key] = {
             "title": game_title,
-            "lowest_price": historical_low,
+            "lowest_price": current_price,
             "updated_at": time.time(),
-            "appid": appid
+            "appid": appid,
+            "verified": False
+        }
+        save_local_price_history(history)
+    elif current_price < historical_low:
+        history[key] = {
+            "title": game_title,
+            "lowest_price": current_price,
+            "updated_at": time.time(),
+            "appid": appid,
+            "verified": local_record.get("verified", False)
         }
         save_local_price_history(history)
 
@@ -186,6 +235,6 @@ def evaluate_price_alert(
         "discount_percent": discount_percent,
         "trigger_alert": is_at_or_below_lowest and discount_percent > 0,
         "shop": shop_name,
-        "is_new_all_time_low": current_price < historical_low,
+        "is_new_all_time_low": is_new_all_time_low,
         "currency": settings.currency
     }

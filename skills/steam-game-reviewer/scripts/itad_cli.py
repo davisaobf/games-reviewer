@@ -58,7 +58,8 @@ def main():
             current_price=args.price,
             discount_percent=args.discount,
             appid=args.appid,
-            itad_client=client
+            itad_client=client,
+            allow_unverified_first_seen=True
         )
         write_output(res, args.output)
 
