@@ -5,20 +5,22 @@ Provides Slash Commands:
 - /tags: Interactive dropdown to select game categories of interest.
 - /preco: Interactive selector to set maximum price threshold in BRL.
 - /vincular_steam: Links personal Steam wishlist to the community pool.
-- /minha_wishlist: Displays linked wishlist items, prices, and discounts.
+- /minha_wishlist: Displays games on your wishlist currently at lowest historical price.
 - /definir_canal: Configures server announcement channel for alerts.
 - /check: Forces immediate scan of all wishlists for lowest historical prices.
-- /recomendar: AI game recommendation based on community consensus.
+- /recomendar: AI game recommendation carousel based on play history.
 - /noticias: Gaming news radar filtered by user profile.
 """
 
 import asyncio
+import json
 import logging
 import re
 from datetime import datetime
 from typing import Optional, List
 
 import discord
+import requests
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -226,7 +228,7 @@ async def cmd_help(interaction: discord.Interaction):
         name="🛒 Integração com a Steam",
         value=(
             "`/vincular_steam <url_ou_id>`: Conecte sua Wishlist pública da Steam ao servidor.\n"
-            "`/minha_wishlist`: Visualize os jogos da sua wishlist com preços e descontos atuais."
+            "`/minha_wishlist`: Exibe os jogos da sua wishlist no menor preço histórico."
         ),
         inline=False
     )
@@ -317,14 +319,14 @@ async def cmd_vincular_steam(interaction: discord.Interaction, perfil_ou_url: st
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@bot.tree.command(name="minha_wishlist", description="Exibe os jogos da sua Wishlist cadastrada")
+@bot.tree.command(name="minha_wishlist", description="Exibe os jogos da sua Wishlist que estão no menor preço histórico")
 async def cmd_minha_wishlist(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     user_pref = pref_manager.get_user_preference(interaction.user.id)
     steam_id = user_pref.get("steam_id") or settings.steam_user_id
 
     client = SteamClient(user_id=steam_id)
-    wishlist = client.get_wishlist()
+    wishlist = await asyncio.to_thread(client.get_wishlist)
 
     if not wishlist:
         await interaction.followup.send(
@@ -333,22 +335,82 @@ async def cmd_minha_wishlist(interaction: discord.Interaction):
         )
         return
 
-    embed = discord.Embed(
-        title=f"🛒 Wishlist Steam - {steam_id}",
-        description=f"Exibindo os primeiros jogos da lista ({len(wishlist)} títulos no total):",
-        color=0x1B2838
-    )
+    discounted_items = [
+        item for item in wishlist
+        if item.get("discount_percent", 0) > 0 and item.get("current_price", 0) > 0
+    ]
 
-    for item in wishlist[:8]:
-        price_txt = f"R$ {item['current_price']:.2f}" if item['current_price'] > 0 else "Gratuito"
-        disc_txt = f" (-{item['discount_percent']}%)" if item['discount_percent'] > 0 else ""
-        embed.add_field(
-            name=f"🎮 {item['name']}",
-            value=f"Preço: **{price_txt}**{disc_txt} | Avaliações: {item.get('review_desc', 'Positivas')}",
-            inline=False
+    historical_deals = []
+    for item in discounted_items:
+        appid = item.get("appid")
+        name = item.get("name", "Unknown")
+        current_price = item.get("current_price", 0.0)
+        discount = item.get("discount_percent", 0)
+
+        price_eval = await asyncio.to_thread(
+            evaluate_price_alert,
+            game_title=name,
+            current_price=current_price,
+            discount_percent=discount,
+            appid=appid
         )
 
-    await interaction.followup.send(embed=embed, ephemeral=True)
+        if price_eval.get("trigger_alert"):
+            details = await asyncio.to_thread(client.get_game_details, appid)
+            game_tags = details.get("tags", item.get("tags", [])) if details else item.get("tags", [])
+            header_img = (details.get("header_image") if details else None) or item.get("header_image") or f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appid}/header.jpg"
+
+            consensus = await asyncio.to_thread(bot.review_analyzer.summarize_game_consensus, appid, name)
+            score_desc = consensus.get("score_desc", "Muito Positivas")
+            pos_pct = consensus.get("positive_percent", 0)
+
+            end_info = await asyncio.to_thread(client.get_discount_end_info, appid)
+            promo_end_text = end_info.get("text", "Promoção por tempo limitado")
+            store_url = item.get("store_url") or f"https://store.steampowered.com/app/{appid}/"
+
+            historical_deals.append({
+                "name": name,
+                "appid": appid,
+                "current_price": current_price,
+                "historical_low": price_eval["historical_low"],
+                "discount_percent": discount,
+                "store_url": store_url,
+                "tags": game_tags,
+                "promo_end": promo_end_text,
+                "score_desc": score_desc,
+                "pos_pct": pos_pct,
+                "header_image": header_img
+            })
+
+    if not historical_deals:
+        embed = discord.Embed(
+            title="🔍 Sua Wishlist — Nenhuma Promoção no Menor Preço Histórico",
+            description=(
+                f"• **Perfil verificado:** `{steam_id}`\n"
+                f"• **Jogos avaliados na sua wishlist:** {len(wishlist)}\n\n"
+                "Nenhum jogo da sua lista de desejos atingiu o menor preço histórico no momento.\n"
+                "Você será notificado automaticamente assim que qualquer título da sua lista bater o recorde de preço!"
+            ),
+            color=0x95A5A6
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        return
+
+    if len(historical_deals) > 1:
+        view = PromoCarouselView(historical_deals)
+        await interaction.followup.send(
+            content=f"🎯 **Sua Wishlist: {len(historical_deals)} jogos no Menor Preço Histórico!**\nNavegue pelas ofertas no carrossel abaixo:",
+            embed=view.create_embed(),
+            view=view,
+            ephemeral=True
+        )
+    else:
+        embed = create_deal_embed(historical_deals[0])
+        await interaction.followup.send(
+            content="🎯 **Sua Wishlist: 1 jogo no Menor Preço Histórico!**",
+            embed=embed,
+            ephemeral=True
+        )
 
 
 @bot.tree.command(name="definir_canal", description="Define o canal oficial para envio dos alertas de promoções")
@@ -459,7 +521,7 @@ async def cmd_painel(interaction: discord.Interaction):
     embed_commands = discord.Embed(
         title="⚡ Guia Rápido & Comandos",
         description=(
-            "• `/minha_wishlist` — Exibe os jogos da sua wishlist cadastrada.\n"
+            "• `/minha_wishlist` — Exibe os jogos da sua wishlist no menor preço histórico.\n"
             "• `/vincular_steam <url>` — Adiciona sua lista de desejos ao radar comunitário.\n"
             "• `/check` — Força uma varredura de menores preços históricos nas wishlists.\n"
             "• `/recomendar [estilo]` — Recomendações de jogos inéditos baseadas no seu histórico de horas.\n"
@@ -654,6 +716,112 @@ class PromoCarouselView(discord.ui.View):
             await interaction.response.defer()
 
 
+def search_steam_game(title: str) -> dict:
+    """Searches Steam Store API for game pricing, appid, and capsule image."""
+    try:
+        r = requests.get(
+            f"https://store.steampowered.com/api/storesearch/?term={requests.utils.quote(title)}&l=brazilian&cc=BR",
+            timeout=5
+        )
+        if r.ok:
+            items = r.json().get("items", [])
+            if items:
+                best = items[0]
+                appid = best.get("id")
+                price_data = best.get("price")
+                if price_data:
+                    final_cents = price_data.get("final", 0)
+                    init_cents = price_data.get("initial", final_cents)
+                    final_price = final_cents / 100
+                    disc = round((init_cents - final_cents) / init_cents * 100) if init_cents > final_cents else 0
+                    price_txt = f"R$ {final_price:.2f}" if final_price > 0 else "Gratuito"
+                else:
+                    price_txt = "Gratuito para Jogar"
+                    disc = 0
+                return {
+                    "name": best.get("name", title),
+                    "appid": appid,
+                    "price_txt": price_txt,
+                    "discount_percent": disc,
+                    "store_url": f"https://store.steampowered.com/app/{appid}/",
+                    "header_image": f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appid}/header.jpg"
+                }
+    except Exception as e:
+        logger.debug(f"Erro ao buscar jogo '{title}' na Steam Store: {e}")
+
+    return {
+        "name": title,
+        "appid": None,
+        "price_txt": "Consultar na Steam",
+        "discount_percent": 0,
+        "store_url": f"https://store.steampowered.com/search/?term={requests.utils.quote(title)}",
+        "header_image": None
+    }
+
+
+class RecommendationCarouselView(discord.ui.View):
+    """Interactive lateral scroll carousel for game recommendations."""
+
+    def __init__(self, games: List[dict], timeout: Optional[float] = 604800.0):
+        super().__init__(timeout=timeout)
+        self.games = games
+        self.current_page = 0
+        self._update_buttons()
+
+    def _update_buttons(self):
+        total = len(self.games)
+        self.btn_prev.disabled = (self.current_page == 0)
+        self.btn_counter.label = f"🎮 {self.current_page + 1} de {total}"
+        self.btn_next.disabled = (self.current_page >= total - 1)
+
+    def create_embed(self) -> discord.Embed:
+        g = self.games[self.current_page]
+        total = len(self.games)
+        page_info = f"{self.current_page + 1} de {total}"
+        name = g.get("name", "Jogo Recomendado")
+        reason = g.get("reason", "")
+        price_txt = g.get("price_txt", "Consultar na Steam")
+        disc_txt = f" `(-{g['discount_percent']}%)`" if g.get("discount_percent", 0) > 0 else ""
+        store_url = g.get("store_url", f"https://store.steampowered.com/search/?term={requests.utils.quote(name)}")
+        header_img = g.get("header_image")
+
+        embed = discord.Embed(
+            title=f"💡 Recomendação ({page_info}): {name}",
+            description=(
+                f"**Por que vale a pena:** {reason}\n\n"
+                f"💵 **Preço na Steam:** {price_txt}{disc_txt}\n\n"
+                f"🔗 [Acessar na Loja Steam]({store_url})"
+            ),
+            color=0x1ABC9C
+        )
+        if header_img:
+            embed.set_image(url=header_img)
+        embed.set_footer(text="Carrossel Interativo • Use os botões abaixo para folhear entre as recomendações!")
+        return embed
+
+    @discord.ui.button(label="◀️ Anterior", style=discord.ButtonStyle.primary)
+    async def btn_prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self._update_buttons()
+            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        else:
+            await interaction.response.defer()
+
+    @discord.ui.button(label="1 / 1", style=discord.ButtonStyle.secondary, disabled=True)
+    async def btn_counter(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Próximo ▶️", style=discord.ButtonStyle.primary)
+    async def btn_next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < len(self.games) - 1:
+            self.current_page += 1
+            self._update_buttons()
+            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        else:
+            await interaction.response.defer()
+
+
 @bot.tree.command(name="check", description="Verifica promoções ativas no menor preço histórico nas wishlists")
 async def cmd_check(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -716,13 +884,15 @@ async def cmd_noticias(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
-@bot.tree.command(name="recomendar", description="Recomendações de jogos inéditos baseadas no seu perfil de horas jogadas")
+@bot.tree.command(name="recomendar", description="Recomendações de jogos inéditos baseadas no seu perfil em formato carrossel")
 @app_commands.describe(estilo="Gênero ou características desejadas (ex: shooter tático, roguelike, estratégia)")
 async def cmd_recomendar(interaction: discord.Interaction, estilo: Optional[str] = None):
     await interaction.response.defer()
-    query = estilo or "jogos com alto teto de habilidade mecânica ou lógica de automação"
+    query = estilo or "jogos com boa progressão e jogabilidade marcante"
 
-    steam_client = SteamClient()
+    user_pref = pref_manager.get_user_preference(interaction.user.id)
+    steam_id = user_pref.get("steam_id") or settings.steam_user_id
+    steam_client = SteamClient(user_id=steam_id)
 
     # 1. Real owned games with actual playtime (> 0 hours)
     owned_games = await asyncio.to_thread(steam_client.get_owned_games)
@@ -736,46 +906,102 @@ async def cmd_recomendar(interaction: discord.Interaction, estilo: Optional[str]
 
     top_played_str = ", ".join(top_played) if top_played else "Counter-Strike 2 (1266h), Warframe (815h), Palworld (584h)"
 
-    prompt = f"""Você é um consultor técnico de jogos da Steam.
-Analise o histórico real de jogos e tempo jogado do jogador:
+    prompt = f"""Você é um amigo gamer experiente que conhece muito bem o catálogo da Steam.
+Analise os jogos mais jogados do jogador para entender o gosto dele:
 {top_played_str}
 
-{f"O jogador solicitou recomendações específicas no estilo: '{query}'." if query and query != "jogos com alto teto de habilidade mecânica ou lógica de automação" else ""}
+{f"O jogador pediu recomendações focadas em: '{query}'." if query and query != "jogos com boa progressão e jogabilidade marcante" else ""}
 
-LISTA DE JOGOS QUE O JOGADOR JÁ POSSUI (É TERMINANTEMENTE PROIBIDO RECOMENDAR QUALQUER UM DESTES):
+JOGOS QUE O JOGADOR JÁ POSSUI (É RIGOROSAMENTE PROIBIDO RECOMENDAR QUALQUER UM DESTES):
 {', '.join(sorted(all_owned_names))}
 
-REGRAS RÍGIDAS DE FORMATAÇÃO E TOM:
-1. Responda OBRIGATORIAMENTE no modelo exato abaixo, sem títulos extras, sem introduções, sem saudações e sem conclusão:
-Baseado no seu histórico de [{top_played_str}], é recomendado os seguintes jogos: [Nome dos 2 jogos inéditos recomendados], pois eles [explicação concisa das mecânicas, teto de habilidade ou profundidade que se conectam aos gostos observados no perfil].
+INSTRUÇÕES RIGOROSAS DE TOM E FORMATO:
+1. Use uma linguagem casual, humana, amigável e direta (como dois amigos conversando no Discord).
+2. NUNCA use clichês corporativos ou sensacionalistas de IA. É terminantemente proibido usar termos como:
+   - "se alinham diretamente com"
+   - "precisão cirúrgica"
+   - "alta afinidade mecânica"
+   - "análise algorítmica"
+   - "experiência visceral"
+   - "rigoroso" ou "consenso de pessoas reais"
+3. Prefira termos naturais como: "se parecem com", "têm uma pegada parecida com o que você curte", "lembram um pouco", "misturam elementos de".
+4. NÃO liste os nomes dos jogos do histórico do jogador na justificativa. Mantenha o histórico oculto do texto final.
+5. No campo 'justificativa', complete a frase iniciando obrigatoriamente por:
+   "Baseado no seu histórico, as seguintes recomendações são feitas, pois [sua explicação casual e humana em 1 ou 2 frases sem listar os jogos do perfil]".
+6. Selecione 3 jogos inéditos que realmente combinem com o gosto do jogador. Para cada jogo, informe o nome oficial na Steam e uma breve justificativa amigável e casual em 'reason' (1 a 2 frases) explicando por que vale a pena.
 
-2. NUNCA recomende jogos que o jogador já possui.
-3. NÃO use termos sensacionalistas ou clichês de IA (como 'cirúrgico', 'analítica', 'revolucionário', 'consenso de pessoas reais').
-4. NÃO inclua rodapé, aviso ou seção de 'Consenso'."""
+Responda OBRIGATORIAMENTE em formato JSON válido:
+{{
+  "justificativa": "Baseado no seu histórico, as seguintes recomendações são feitas, pois ...",
+  "games": [
+    {{
+      "name": "Nome do Jogo na Steam",
+      "reason": "Por que vale a pena..."
+    }}
+  ]
+}}
+"""
 
     try:
         from google import genai
         client = genai.Client(api_key=settings.gemini_api_key)
         resp = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-3.5-flash-lite",
-            contents=prompt
+            model="gemini-3.6-flash",
+            contents=prompt,
+            config={"response_mime_type": "application/json"}
         )
-        recommendation_text = resp.text.strip()
+        data = json.loads(resp.text)
+        justification = data.get("justificativa", "").strip()
+        recommended_raw = data.get("games", [])
     except Exception as e:
         logger.error(f"Erro ao gerar recomendação via Gemini: {e}")
-        recommendation_text = (
-            f"Baseado no seu histórico de [{top_played_str}], é recomendado os seguintes jogos: [Rust, Deep Rock Galactic], "
-            f"pois eles oferecem sistemas de progressão duradouros, jogabilidade cooperativa refinada e mecânicas técnicas "
-            f"alinhadas aos seus títulos mais jogados."
+        justification = (
+            "Baseado no seu histórico, as seguintes recomendações são feitas, pois você claramente curte "
+            "jogos dinâmicos, com progressão envolvente e um gameplay que te prende por horas."
         )
+        recommended_raw = [
+            {"name": "Risk of Rain 2", "reason": "Tem uma ação frenética em terceira pessoa, jogabilidade rápida e muitas combinações de itens."},
+            {"name": "Dead Cells", "reason": "Combate 2D muito fluido e responsivo, com uma variedade enorme de armas pra testar a cada tentativa."},
+            {"name": "Deep Rock Galactic", "reason": "Cooperação excelente com amigos, exploração de mapas dinâmicos e muita ação sem enrolação."}
+        ]
 
-    embed = discord.Embed(
-        title="💡 Recomendação",
-        description=recommendation_text[:4000],
-        color=0x1ABC9C
+    prefix = "Baseado no seu histórico, as seguintes recomendações são feitas, pois"
+    if not justification.startswith(prefix):
+        if "pois" in justification.lower():
+            after_pois = justification.split("pois", 1)[1].strip()
+            justification = f"{prefix} {after_pois}"
+        else:
+            justification = f"{prefix} combinam com os estilos de jogos nos quais você mais investe tempo."
+
+    enriched_games = []
+    for g in recommended_raw[:4]:
+        name = g.get("name", "").strip()
+        if not name:
+            continue
+        steam_data = await asyncio.to_thread(search_steam_game, name)
+        steam_data["reason"] = g.get("reason", "").strip()
+        enriched_games.append(steam_data)
+
+    if not enriched_games:
+        enriched_games = [
+            {
+                "name": "Risk of Rain 2",
+                "appid": 632360,
+                "price_txt": "R$ 59.99",
+                "discount_percent": 0,
+                "store_url": "https://store.steampowered.com/app/632360/",
+                "header_image": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/632360/header.jpg",
+                "reason": "Tem uma ação dinâmica em terceira pessoa com ótimas sinergias de itens."
+            }
+        ]
+
+    view = RecommendationCarouselView(enriched_games)
+    await interaction.followup.send(
+        content=justification,
+        embed=view.create_embed(),
+        view=view
     )
-    await interaction.followup.send(embed=embed)
 
 
 # ==============================================================================

@@ -2,7 +2,7 @@
 
 import unittest
 from tools.steam_api import SteamClient
-from agent.discord_bot import create_deal_embed, PromoCarouselView
+from agent.discord_bot import create_deal_embed, PromoCarouselView, RecommendationCarouselView
 
 
 class TestCarouselAndDetails(unittest.TestCase):
@@ -62,6 +62,45 @@ class TestCarouselAndDetails(unittest.TestCase):
         end_info = client.get_discount_end_info(1621690)
         self.assertIn("text", end_info)
         self.assertTrue(len(end_info["text"]) > 0)
+
+    def test_recommendation_carousel_view(self):
+        sample_recs = [
+            {
+                "name": "Risk of Rain 2",
+                "appid": 632360,
+                "price_txt": "R$ 59.99",
+                "discount_percent": 0,
+                "store_url": "https://store.steampowered.com/app/632360/",
+                "header_image": "https://cdn.steam.com/header_ror2.jpg",
+                "reason": "Ação em terceira pessoa bem fluida."
+            },
+            {
+                "name": "Dead Cells",
+                "appid": 588650,
+                "price_txt": "R$ 47.49",
+                "discount_percent": 20,
+                "store_url": "https://store.steampowered.com/app/588650/",
+                "header_image": "https://cdn.steam.com/header_dc.jpg",
+                "reason": "Combate rápido e viciante."
+            }
+        ]
+        view = RecommendationCarouselView(sample_recs)
+        self.assertEqual(view.current_page, 0)
+        self.assertTrue(view.btn_prev.disabled)
+        self.assertFalse(view.btn_next.disabled)
+        self.assertEqual(view.btn_counter.label, "🎮 1 de 2")
+
+        embed = view.create_embed()
+        self.assertIn("Risk of Rain 2", embed.title)
+        self.assertIn("Ação em terceira pessoa bem fluida.", embed.description)
+        self.assertIn("R$ 59.99", embed.description)
+
+        # Go to page 2
+        view.current_page = 1
+        view._update_buttons()
+        self.assertFalse(view.btn_prev.disabled)
+        self.assertTrue(view.btn_next.disabled)
+        self.assertEqual(view.btn_counter.label, "🎮 2 de 2")
 
 
 if __name__ == "__main__":
