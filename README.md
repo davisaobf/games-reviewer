@@ -96,12 +96,11 @@ py -3.13 -c "import getpass, pathlib; val = getpass.getpass('Enter DISCORD_WEBHO
 python run.py --mode discord
 ```
 Principais comandos slash disponíveis no servidor:
-* `/painel` — Publica o painel de boas-vindas e configuração por reações (dividido em 3 mensagens com 12 tags oficiais Steam e teto de orçamento).
+* `/painel` — Publica o painel de configuração de preferências por reações (dividido em mensagens temáticas com 12 tags oficiais Steam e teto de orçamento).
 * `/check` — Força varredura imediata de promoções no menor preço histórico com datas de término da oferta.
-* `/definir_canal` — Define o canal oficial onde o bot postará os anúncios e alertas com menções cirúrgicas.
-* `/minha_wishlist` — Lista os jogos da lista de desejos cadastrada com preços em R$ e descontos.
+* `/definir_canal` — [Admin] Define o canal oficial onde o bot postará os anúncios e alertas com menções cirúrgicas.
+* `/minha_wishlist` — Lista os jogos da lista de desejos cadastrada.
 * `/vincular_steam <url>` — Conecta a lista de desejos ao radar comunitário do servidor.
-* `/reviews <jogo>` — Consulta opiniões reais de jogadores na Steam e discussões do Reddit.
 * `/noticias` — Manchetes filtradas do radar gamer.
 * `/help` — Guia geral interativo.
 

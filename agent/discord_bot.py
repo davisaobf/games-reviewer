@@ -9,7 +9,6 @@ Provides Slash Commands:
 - /definir_canal: Configures server announcement channel for alerts.
 - /check: Forces immediate scan of all wishlists for lowest historical prices.
 - /recomendar: AI game recommendation based on community consensus.
-- /reviews: Community review and sentiment summary for any game.
 - /noticias: Gaming news radar filtered by user profile.
 """
 
@@ -236,7 +235,6 @@ async def cmd_help(interaction: discord.Interaction):
         name="⚡ Análises e Varredura",
         value=(
             "`/check`: Força uma varredura de menores preços em todas as wishlists cadastradas.\n"
-            "`/reviews <jogo>`: Recomendações e análises feitas pela comunidade Steam e Reddit.\n"
             "`/recomendar [estilo]`: Recomendações de jogos baseadas no seu histórico de jogo.\n"
             "`/noticias`: Exibe notícias selecionadas sobre jogos e atualizações."
         ),
@@ -354,10 +352,11 @@ async def cmd_minha_wishlist(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="definir_canal", description="Define o canal oficial para envio dos alertas de promoções")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(canal="Canal para os anúncios (opcional: deixe em branco para usar o canal atual onde você está)")
 async def cmd_definir_canal(interaction: discord.Interaction, canal: Optional[discord.abc.GuildChannel] = None):
-    if interaction.user.guild_permissions and not (interaction.user.guild_permissions.manage_channels or interaction.user.guild_permissions.administrator):
-        await interaction.response.send_message("❌ Apenas administradores ou moderadores com permissão de 'Gerenciar Canais' podem usar este comando.", ephemeral=True)
+    if interaction.user.guild_permissions and not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Apenas administradores do servidor podem usar este comando.", ephemeral=True)
         return
 
     target = canal or interaction.channel
@@ -464,11 +463,7 @@ async def cmd_painel(interaction: discord.Interaction):
             "• `/vincular_steam <url>` — Adiciona sua lista de desejos ao radar comunitário.\n"
             "• `/check` — Força uma varredura de menores preços históricos nas wishlists.\n"
             "• `/recomendar [estilo]` — Recomendações de jogos inéditos baseadas no seu histórico de horas.\n"
-            "• `/reviews <jogo>` — Recomendações e análises feitas pela comunidade Steam e Reddit.\n"
-            "• `/noticias` — Exibe notícias selecionadas sobre jogos e atualizações.\n"
-            "• `/definir_canal` — Define o canal oficial para os alertas de promoções.\n\n"
-            "🛡️ **Critério de Notificação (Zero Spam):**\n"
-            "Os alertas são emitidos exclusivamente quando uma promoção atinge ou supera o menor preço histórico já registrado em lojas oficiais."
+            "• `/noticias` — Exibe notícias selecionadas sobre jogos e atualizações."
         ),
         color=0xF1C40F
     )
@@ -686,7 +681,7 @@ async def cmd_check(interaction: discord.Interaction):
         mention_str = f"\n🔔 **Membros notificados:** " + " ".join(f"<@{uid}>" for uid in all_pings) if all_pings else ""
         content = (
             f"🚨 **Varredura Concluída: {len(games)} jogos no Menor Preço Histórico!**\n"
-            f"Navegue pelas ofertas completas com banners oficiais e prazos no carrossel abaixo:{mention_str}"
+            f"Navegue pelas ofertas completas no carrossel abaixo:{mention_str}"
         )
         view = PromoCarouselView(games)
         await interaction.followup.send(content=content, embed=view.create_embed(), view=view)
@@ -694,48 +689,6 @@ async def cmd_check(interaction: discord.Interaction):
         for g in games:
             embed = create_deal_embed(g)
             await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name="reviews", description="Recomendações e análises feitas pela comunidade Steam e Reddit")
-@app_commands.describe(nome_do_jogo="Nome exato ou aproximado do jogo")
-async def cmd_reviews(interaction: discord.Interaction, nome_do_jogo: str):
-    await interaction.response.defer()
-    analyzer = bot.review_analyzer
-    # Search game details or appid
-    consensus = analyzer.fetch_reddit_discussions(nome_do_jogo, limit=4)
-    steam_client = SteamClient()
-    
-    # Try looking in local wishlist cache
-    wishlist = steam_client.get_wishlist()
-    found_item = next((w for w in wishlist if nome_do_jogo.lower() in w["name"].lower()), None)
-    
-    embed = discord.Embed(
-        title=f"⭐ Análise de Comunidade: {nome_do_jogo}",
-        color=0xF1C40F
-    )
-
-    if found_item:
-        steam_summary = analyzer.fetch_steam_reviews(found_item["appid"], limit=3)
-        embed.description = (
-            f"**Avaliações na Steam:** {steam_summary.get('review_score_desc', 'Muito Positivas')} "
-            f"({steam_summary.get('positive_percent', 0)}% positivas)\n"
-            f"Total de análises: {steam_summary.get('total_reviews', 0):,}\n"
-        )
-        for r in steam_summary.get("sample_reviews", [])[:2]:
-            icon = "👍" if r.get("voted_up") else "👎"
-            embed.add_field(
-                name=f"{icon} Jogador com {r.get('playtime_hours', 0)}h de jogo",
-                value=f"\"{r.get('review_text', '')[:220]}...\"",
-                inline=False
-            )
-
-    if consensus:
-        disc_text = ""
-        for post in consensus[:3]:
-            disc_text += f"• [{post['title'][:80]}]({post['url']}) ({post['score']} upvotes)\n"
-        embed.add_field(name="💬 Discussões Relevantes no Reddit (r/Games)", value=disc_text, inline=False)
-
-    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="noticias", description="Exibe notícias selecionadas sobre jogos e atualizações")
