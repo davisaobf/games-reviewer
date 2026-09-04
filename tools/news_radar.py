@@ -27,6 +27,12 @@ TASTE_KEYWORDS = {
     "skill_ceiling_and_action": [
         "high skill ceiling", "shape of dreams", "roguelite", "roguelike", "combat depth",
         "soulslike", "boss fight", "parry", "mechanics"
+    ],
+    "major_events_and_awards": [
+        "game awards", "the game awards", "summer game fest", "gamescom",
+        "steam next fest", "steam sale", "golden joystick", "state of play",
+        "nintendo direct", "xbox showcase", "reveal", "goty", "announcement",
+        "game of the year", "trailer", "premiere"
     ]
 }
 

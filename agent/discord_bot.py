@@ -651,11 +651,20 @@ def create_deal_embed(g: dict, page_info: Optional[str] = None) -> discord.Embed
     pos_pct = g.get("pos_pct", 90)
     header_img = g.get("header_image")
 
-    title_prefix = f"🚨 MENOR PREÇO HISTÓRICO ({page_info}): " if page_info else "🚨 NOVO MENOR PREÇO HISTÓRICO: "
+    is_rec = g.get("is_recommendation", False)
+    if is_rec:
+        title_prefix = f"💡 RECOMENDAÇÃO HISTÓRICA ({page_info}): " if page_info else "💡 NOVA RECOMENDAÇÃO HISTÓRICA: "
+        header_intro = "🎮 **Recomendação baseada nas preferências e wishlists da comunidade!**\nEste título atingiu seu **menor preço histórico já registrado em Reais**!\n\n"
+        color = 0x1ABC9C
+    else:
+        title_prefix = f"🚨 MENOR PREÇO HISTÓRICO ({page_info}): " if page_info else "🚨 NOVO MENOR PREÇO HISTÓRICO: "
+        header_intro = "O jogo atingiu ou superou seu **menor preço histórico já registrado em Reais**!\n\n"
+        color = 0x2ECC71
+
     embed = discord.Embed(
         title=f"{title_prefix}{name}",
         description=(
-            f"O jogo atingiu ou superou seu **menor preço histórico já registrado em Reais**!\n\n"
+            f"{header_intro}"
             f"💵 **Preço Atual:** R$ {current_price:.2f} `(-{discount}%)`\n"
             f"📉 **Menor Histórico:** R$ {historical_low:.2f}\n"
             f"⏰ **Término da Oferta:** {promo_end}\n"
@@ -663,7 +672,7 @@ def create_deal_embed(g: dict, page_info: Optional[str] = None) -> discord.Embed
             f"🏷️ **Tags:** {tag_str}\n\n"
             f"[Acessar na Loja Steam]({store_url})"
         ),
-        color=0x2ECC71,
+        color=color,
         timestamp=discord.utils.utcnow()
     )
     if header_img:
@@ -1104,6 +1113,71 @@ async def run_community_price_check(is_periodic: bool = False, source_channel: O
                     triggered_games.append(game_data)
                 else:
                     silent_skips += 1
+
+    # 2.5 Use wishlists as database to discover new recommendations on historical low
+    try:
+        community_tags_pool = set()
+        for steam_id in community_ids:
+            c = SteamClient(user_id=steam_id)
+            w = c.get_wishlist()
+            for itm in w:
+                for tg in itm.get("tags", []):
+                    community_tags_pool.add(tg.lower())
+
+        steam_specials = await asyncio.to_thread(client.get_featured_specials)
+        for sp in steam_specials:
+            sp_appid = sp.get("appid")
+            if not sp_appid or sp_appid in seen_appids:
+                continue
+            seen_appids.add(sp_appid)
+
+            sp_price = sp.get("current_price", 0.0)
+            sp_disc = sp.get("discount_percent", 0)
+            sp_name = sp.get("name", "Unknown")
+
+            if sp_disc > 0 and sp_price > 0:
+                games_evaluated += 1
+                sp_eval = evaluate_price_alert(
+                    game_title=sp_name,
+                    current_price=sp_price,
+                    discount_percent=sp_disc,
+                    appid=sp_appid
+                )
+                if sp_eval.get("trigger_alert"):
+                    details = await asyncio.to_thread(client.get_game_details, sp_appid)
+                    game_tags = details.get("tags", []) if details else []
+                    users_to_ping = pref_manager.find_users_to_notify(game_tags, sp_price)
+
+                    # Recommend if there is tag overlap with the community wishlists pool or subscribed user tags
+                    has_overlap = any(t.lower() in community_tags_pool for t in game_tags) or bool(users_to_ping)
+                    if has_overlap:
+                        header_img = (details.get("header_image") if details else None) or sp.get("header_image") or f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{sp_appid}/header.jpg"
+                        consensus = await asyncio.to_thread(analyzer.summarize_game_consensus, sp_appid, sp_name)
+                        score_desc = consensus.get("score_desc", "Muito Positivas")
+                        pos_pct = consensus.get("positive_percent", 0)
+
+                        end_info = await asyncio.to_thread(client.get_discount_end_info, sp_appid)
+                        promo_end_text = end_info.get("text", "Promoção por tempo limitado")
+                        store_url = f"https://store.steampowered.com/app/{sp_appid}/"
+
+                        rec_data = {
+                            "name": sp_name,
+                            "appid": sp_appid,
+                            "current_price": sp_price,
+                            "historical_low": sp_eval["historical_low"],
+                            "discount_percent": sp_disc,
+                            "store_url": store_url,
+                            "tags": game_tags,
+                            "users_to_ping": users_to_ping,
+                            "promo_end": promo_end_text,
+                            "header_image": header_img,
+                            "score_desc": score_desc,
+                            "pos_pct": pos_pct,
+                            "is_recommendation": True
+                        }
+                        triggered_games.append(rec_data)
+    except Exception as e:
+        logger.warning(f"Erro ao avaliar recomendações automáticas baseadas em wishlists: {e}")
 
     # 3. Dispatch to announcement channels with cognitive load control (Threshold X = 4)
     if is_periodic and triggered_games:

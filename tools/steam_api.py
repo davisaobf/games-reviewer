@@ -453,3 +453,29 @@ class SteamClient:
             "has_end_date": False,
             "text": "Promoção por tempo limitado"
         }
+
+    def get_featured_specials(self) -> List[Dict[str, Any]]:
+        """Retrieves active store specials/deals in BRL directly from Steam Store API."""
+        try:
+            url = "https://store.steampowered.com/api/featuredcategories?l=brazilian&cc=BR"
+            resp = requests.get(url, headers={"User-Agent": "GamesReviewer/1.0"}, timeout=8)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get("specials", {}).get("items", [])
+                specials = []
+                for item in items:
+                    appid = item.get("id")
+                    final_cents = item.get("final_price", 0)
+                    disc = item.get("discount_percent", 0)
+                    if appid and final_cents > 0 and disc > 0:
+                        specials.append({
+                            "appid": appid,
+                            "name": item.get("name", "Unknown"),
+                            "current_price": final_cents / 100.0,
+                            "discount_percent": disc,
+                            "header_image": item.get("header_image") or f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appid}/header.jpg"
+                        })
+                return specials
+        except Exception as e:
+            logger.warning(f"Erro ao buscar promoções em destaque da Steam: {e}")
+        return []
